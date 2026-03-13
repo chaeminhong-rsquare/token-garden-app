@@ -117,55 +117,53 @@ struct PopoverView: View {
 
             if let reason = emptyStateReason {
                 EmptyStateView(reason: reason)
+                    .frame(minHeight: 200)
             } else if showSettings {
                 SettingsView()
             } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        HeatmapView(dailyUsages: heatmapData, selectedDate: $selectedDate)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 8)
+                VStack(spacing: 12) {
+                    HeatmapView(dailyUsages: heatmapData, selectedDate: $selectedDate)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
 
-                        // Show selected day stats or normal stats
-                        if let date = selectedDate,
-                           let usage = allUsages.first(where: {
-                               Calendar.current.isDate($0.date, inSameDayAs: date)
-                           }) {
-                            // Selected day detail
-                            HStack {
-                                Text(selectedDayLabel ?? "")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text(TokenFormatter.format(usage.totalTokens))
-                                    .font(.caption.monospacedDigit())
-                                    .fontWeight(.medium)
-                            }
-                            .padding(8)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .padding(.horizontal, 12)
-                        } else {
-                            StatsView(
-                                todayTokens: todayUsage?.totalTokens ?? 0,
-                                weekTokens: weekTokens,
-                                monthTokens: monthTokens
-                            )
-                            .padding(.horizontal, 12)
+                    // Show selected day stats or normal stats
+                    if let date = selectedDate,
+                       let usage = allUsages.first(where: {
+                           Calendar.current.isDate($0.date, inSameDayAs: date)
+                       }) {
+                        HStack {
+                            Text(selectedDayLabel ?? "")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(TokenFormatter.format(usage.totalTokens))
+                                .font(.caption.monospacedDigit())
+                                .fontWeight(.medium)
                         }
-
-                        ProjectListView(
-                            todayProjects: todayProjects,
-                            weekProjects: weekProjects,
-                            monthProjects: monthProjects,
-                            selectedDayProjects: selectedDayProjects,
-                            selectedDayLabel: selectedDayLabel
+                        .padding(8)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 12)
+                    } else {
+                        StatsView(
+                            todayTokens: todayUsage?.totalTokens ?? 0,
+                            weekTokens: weekTokens,
+                            monthTokens: monthTokens
                         )
                         .padding(.horizontal, 12)
                     }
-                    .padding(.bottom, 12)
+
+                    ProjectListView(
+                        todayProjects: todayProjects,
+                        weekProjects: weekProjects,
+                        monthProjects: monthProjects,
+                        selectedDayProjects: selectedDayProjects,
+                        selectedDayLabel: selectedDayLabel
+                    )
+                    .padding(.horizontal, 12)
                 }
+                .padding(.bottom, 12)
             }
         }
-        .frame(width: 320, height: 400)
+        .frame(width: 320)
     }
 }

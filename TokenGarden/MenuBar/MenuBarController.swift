@@ -66,7 +66,7 @@ class MenuBarController: ObservableObject {
         }
 
         if animationTimer == nil {
-            button.image = AnimationFrames.image(for: 0)
+            button.image = AnimationFrames.idleImage()
         }
     }
 
@@ -88,11 +88,11 @@ class MenuBarController: ObservableObject {
         animationTimer?.invalidate()
         animationTimer = nil
         currentFrame = 0
-        statusItem?.button?.image = AnimationFrames.image(for: 0)
+        statusItem?.button?.image = AnimationFrames.idleImage()
     }
 
     private func advanceFrame() {
-        currentFrame = (currentFrame + 1) % AnimationFrames.frames.count
+        currentFrame = (currentFrame + 1) % AnimationFrames.frameCount
         statusItem?.button?.image = AnimationFrames.image(for: currentFrame)
     }
 

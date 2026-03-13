@@ -18,10 +18,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         modelContainer = try! ModelContainer(for: DailyUsage.self, ProjectUsage.self)
         dataStore = TokenDataStore(modelContainer: modelContainer)
 
-        // Status Item
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Status Item — fixed width to prevent menu bar shifting during animation
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "leaf.fill", accessibilityDescription: "Token Garden")
+            button.image = AnimationFrames.idleImage()
             button.action = #selector(togglePopover)
             button.target = self
         }
