@@ -29,12 +29,7 @@ struct PopoverView: View {
     }
 
     private var heatmapData: [(date: Date, tokens: Int)] {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let start = calendar.date(byAdding: .day, value: -83, to: today)!
-        return allUsages
-            .filter { $0.date >= start }
-            .map { (date: $0.date, tokens: $0.totalTokens) }
+        allUsages.map { (date: $0.date, tokens: $0.totalTokens) }
     }
 
     // MARK: - Project data by time range
@@ -77,6 +72,7 @@ struct PopoverView: View {
     private var selectedDayLabel: String? {
         guard let date = selectedDate else { return nil }
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
         formatter.dateFormat = "M/d (E)"
         return formatter.string(from: date)
     }
@@ -100,14 +96,23 @@ struct PopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Token Garden")
+                if showSettings {
+                    Button(action: { showSettings = false }) {
+                        Image(systemName: "chevron.left")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text(showSettings ? "Settings" : "Token Garden")
                     .font(.headline)
                 Spacer()
-                Button(action: { showSettings.toggle() }) {
-                    Image(systemName: "gearshape")
-                        .foregroundStyle(.secondary)
+                if !showSettings {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 12)
             .padding(.top, 12)

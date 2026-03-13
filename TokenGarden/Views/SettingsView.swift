@@ -10,15 +10,19 @@ enum MenuBarDisplayMode: String, CaseIterable {
 struct SettingsView: View {
     @AppStorage("logPath") private var logPath = "~/.claude/"
     @AppStorage("displayMode") private var displayMode = MenuBarDisplayMode.iconOnly.rawValue
-    @AppStorage("animationEnabled") private var animationEnabled = true
     @AppStorage("launchAtLogin") private var launchAtLogin = false
 
     var body: some View {
-        Form {
-            Section("Log Path") {
+        VStack(alignment: .leading, spacing: 12) {
+            // Log Path
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Log Path")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     TextField("Path", text: $logPath)
                         .textFieldStyle(.roundedBorder)
+                        .font(.caption)
                     Button("Browse...") {
                         let panel = NSOpenPanel()
                         panel.canChooseDirectories = true
@@ -28,18 +32,32 @@ struct SettingsView: View {
                             logPath = url.path
                         }
                     }
+                    .controlSize(.small)
                 }
             }
-            Section("Menu Bar") {
+
+            Divider()
+
+            // Menu Bar
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Menu Bar")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Display", selection: $displayMode) {
                     ForEach(MenuBarDisplayMode.allCases, id: \.rawValue) { mode in
                         Text(mode.rawValue).tag(mode.rawValue)
                     }
                 }
-                Toggle("Animation", isOn: $animationEnabled)
+                .pickerStyle(.menu)
+                .controlSize(.small)
             }
-            Section("General") {
+
+            Divider()
+
+            // General
+            VStack(alignment: .leading, spacing: 6) {
                 Toggle("Launch at Login", isOn: $launchAtLogin)
+                    .controlSize(.small)
                     .onChange(of: launchAtLogin) { _, newValue in
                         do {
                             if newValue {
@@ -52,14 +70,14 @@ struct SettingsView: View {
                         }
                     }
             }
-            Section {
-                Button("Quit Token Garden") {
-                    NSApplication.shared.terminate(nil)
-                }
+
+            Divider()
+
+            Button("Quit Token Garden") {
+                NSApplication.shared.terminate(nil)
             }
+            .controlSize(.small)
         }
-        .formStyle(.grouped)
-        .frame(width: 320)
-        .padding()
+        .padding(12)
     }
 }

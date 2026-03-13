@@ -46,7 +46,7 @@ import Foundation
     #expect(event?.projectName == "project-name")
 }
 
-@Test func watchPathsIncludeClaudeProjects() {
+@Test func watchPathsIncludeClaudeDirectory() {
     let parser = ClaudeCodeLogParser()
-    #expect(parser.watchPaths.first!.hasSuffix(".claude/projects"))
+    #expect(parser.watchPaths.first!.hasSuffix(".claude"))
 }

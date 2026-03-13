@@ -5,7 +5,7 @@ struct ClaudeCodeLogParser: TokenLogParser {
 
     var watchPaths: [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return ["\(home)/.claude/projects"]
+        return ["\(home)/.claude"]
     }
 
     func parse(logLine: String) -> TokenEvent? {

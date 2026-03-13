@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var logWatcher: LogWatcher!
     private var dataStore: TokenDataStore!
     private var modelContainer: ModelContainer!
+    private var animationTimer: Timer!
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -32,6 +33,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             to: Date()
         ).first?.totalTokens ?? 0
         menuBarController = MenuBarController(statusItem: statusItem, initialTodayTokens: todayTokens)
+
+        // Animation timer — runs forever, .common mode so it works during popover interaction
+        animationTimer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.menuBarController.tick()
+            }
+        }
+        RunLoop.main.add(animationTimer, forMode: .common)
 
         // Popover
         popover = NSPopover()
