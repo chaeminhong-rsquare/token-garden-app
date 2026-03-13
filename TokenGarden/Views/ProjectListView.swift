@@ -59,7 +59,7 @@ struct ProjectListView: View {
                                 )
                                 .foregroundStyle(selectedRange == range ? .primary : .secondary)
                                 .onTapGesture {
-                                    withAnimation { selectedRange = range }
+                                    selectedRange = range
                                 }
                         }
                     }
@@ -94,7 +94,7 @@ struct ProjectListView: View {
                     Text("More...")
                         .font(.caption)
                         .foregroundStyle(.blue)
-                        .onTapGesture { withAnimation { isExpanded = true } }
+                        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { isExpanded = true } }
                 }
             }
         }

@@ -86,7 +86,7 @@ struct HeatmapView: View {
                         )
                         .foregroundStyle(range == r ? .primary : .secondary)
                         .onTapGesture {
-                            withAnimation { range = r }
+                            range = r
                         }
                 }
             }
@@ -204,7 +204,7 @@ struct HeatmapView: View {
                 )
                 .help(cell.tooltip)
                 .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    do {
                         if isSelected {
                             selectedDate = nil
                         } else {

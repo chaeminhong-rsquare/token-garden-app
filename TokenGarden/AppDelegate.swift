@@ -47,14 +47,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Popover — transient behavior closes on outside click
         popover = NSPopover()
+        popover.contentSize = NSSize(width: 320, height: 480)
         popover.behavior = .transient
 
         let popoverView = PopoverView()
             .environmentObject(menuBarController)
             .modelContainer(modelContainer)
-        let hostingController = NSHostingController(rootView: popoverView)
-        hostingController.sizingOptions = [.preferredContentSize]
-        popover.contentViewController = hostingController
+        popover.contentViewController = NSHostingController(rootView: popoverView)
 
         // Log Parser + Watcher
         let parser = ClaudeCodeLogParser()

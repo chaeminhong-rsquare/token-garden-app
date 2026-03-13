@@ -18,7 +18,7 @@ struct SessionListView: View {
     var body: some View {
         if !todaySessions.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Button(action: { withAnimation { isExpanded.toggle() } }) {
+                Button(action: { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }) {
                     HStack {
                         Label("Sessions", systemImage: "clock.fill")
                             .font(.caption)

@@ -23,7 +23,7 @@ struct StatsView: View {
                     .foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
-            .onTapGesture { withAnimation { isExpanded.toggle() } }
+            .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }
 
             if isExpanded {
                 VStack(spacing: 6) {
