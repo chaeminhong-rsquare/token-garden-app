@@ -10,17 +10,17 @@ enum HeatmapCalculator {
         }
 
         let maxVal = nonZero.last!
-        let q1 = nonZero[nonZero.count / 4]
-        let q2 = nonZero[nonZero.count / 2]
-        let q3 = nonZero[nonZero.count * 3 / 4]
+        let percentiles = (1...6).map { i in
+            nonZero[nonZero.count * i / 7]
+        }
 
         return dailyTotals.map { total in
             if total == 0 { return 0 }
-            if total == maxVal { return 4 }
-            if total <= q1 { return 1 }
-            if total <= q2 { return 2 }
-            if total <= q3 { return 3 }
-            return 4
+            if total == maxVal { return 7 }
+            for (i, p) in percentiles.enumerated() {
+                if total <= p { return i + 1 }
+            }
+            return 7
         }
     }
 }
@@ -55,13 +55,10 @@ struct HeatmapView: View {
 
     private let dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]
 
-    private let colors: [Color] = [
-        Color(.systemGray).opacity(0.15),
-        Color.green.opacity(0.3),
-        Color.green.opacity(0.5),
-        Color.green.opacity(0.7),
-        Color.green,
-    ]
+    @AppStorage("heatmapTheme") private var themeName = HeatmapTheme.green.rawValue
+    private var colors: [Color] {
+        (HeatmapTheme(rawValue: themeName) ?? .green).colors
+    }
 
     private var isYearView: Bool { range == .year }
 

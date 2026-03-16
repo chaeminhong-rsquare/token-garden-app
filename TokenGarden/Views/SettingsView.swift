@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage("logPath") private var logPath = "~/.claude/"
     @AppStorage("displayMode") private var displayMode = MenuBarDisplayMode.iconOnly.rawValue
     @AppStorage("launchAtLogin") private var launchAtLogin = false
+    @AppStorage("heatmapTheme") private var heatmapTheme = HeatmapTheme.green.rawValue
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -50,6 +51,41 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .controlSize(.small)
+            }
+
+            Divider()
+
+            // Heatmap Theme
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Heatmap Theme")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                let columns = [GridItem(.adaptive(minimum: 90), spacing: 8)]
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(HeatmapTheme.allCases, id: \.rawValue) { theme in
+                        let isSelected = heatmapTheme == theme.rawValue
+                        VStack(spacing: 3) {
+                            HStack(spacing: 2) {
+                                ForEach(1..<8, id: \.self) { i in
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(theme.colors[i])
+                                        .frame(width: 10, height: 10)
+                                }
+                            }
+                            Text(theme.rawValue)
+                                .font(.system(size: 8))
+                                .foregroundStyle(isSelected ? .primary : .secondary)
+                        }
+                        .padding(4)
+                        .background(
+                            isSelected ? Color.accentColor.opacity(0.15) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .onTapGesture {
+                            heatmapTheme = theme.rawValue
+                        }
+                    }
+                }
             }
 
             Divider()
