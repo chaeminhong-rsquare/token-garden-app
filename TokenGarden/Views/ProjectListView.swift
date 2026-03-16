@@ -13,7 +13,7 @@ struct ProjectListView: View {
     var selectedDayProjects: [(name: String, tokens: Int)]?
     var selectedDayLabel: String?
     @State private var selectedRange: ProjectTimeRange = .week
-    @State private var isExpanded = true
+    @State private var isExpanded = false
 
     private var activeProjects: [(name: String, tokens: Int)] {
         if let selected = selectedDayProjects {
@@ -33,7 +33,7 @@ struct ProjectListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Header
-            Button(action: { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }) {
+            Button(action: { isExpanded.toggle() }) {
                 HStack {
                     Label(selectedDayLabel ?? "Projects", systemImage: "folder.fill")
                         .font(.caption)
@@ -81,28 +81,32 @@ struct ProjectListView: View {
                         .padding(.vertical, 4)
                 } else {
                     let items = activeProjects.sorted(by: { $0.tokens > $1.tokens })
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            ForEach(items, id: \.name) { project in
-                                HStack {
-                                    Text(project.name)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(TokenFormatter.format(project.tokens))
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                    let pct = totalTokens > 0 ? Int(Double(project.tokens) / Double(totalTokens) * 100) : 0
-                                    Text("\(pct)%")
-                                        .font(.caption.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 30, alignment: .trailing)
-                                }
-                                .padding(.vertical, 2)
+                    let content = VStack(spacing: 0) {
+                        ForEach(items, id: \.name) { project in
+                            HStack {
+                                Text(project.name)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(TokenFormatter.format(project.tokens))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                let pct = totalTokens > 0 ? Int(Double(project.tokens) / Double(totalTokens) * 100) : 0
+                                Text("\(pct)%")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 30, alignment: .trailing)
                             }
+                            .padding(.vertical, 2)
                         }
                     }
-                    .frame(maxHeight: 500)
+                    if items.count > 10 {
+                        ScrollView { content }
+                            .scrollIndicators(.never)
+                            .frame(maxHeight: 250)
+                    } else {
+                        content
+                    }
                 }
             }
         }

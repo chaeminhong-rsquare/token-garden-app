@@ -40,6 +40,15 @@ class MenuBarController: ObservableObject {
         updateDisplay()
     }
 
+    /// Reload data after async backfill completes
+    func reloadData(todayTokens: Int, hourlyBuckets: [Int]) {
+        self.todayTokens = todayTokens
+        if hourlyBuckets.count == 3 {
+            self.hourlyBuckets = hourlyBuckets
+        }
+        updateDisplay()
+    }
+
     /// Called by AppDelegate's timer on every tick
     func tick() {
         currentFrame = (currentFrame + 1) % AnimationFrames.frameCount

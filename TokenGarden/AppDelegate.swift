@@ -10,9 +10,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var dataStore: TokenDataStore!
     private var modelContainer: ModelContainer!
     private var animationTimer: Timer!
+    private var refreshTimer: Timer!
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single instance guard
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.tokengarden"
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+        if running.count > 1 {
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.accessory)
 
         // SwiftData — explicit store path + lightweight migration
@@ -31,15 +40,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.image = AnimationFrames.idleImage()
             button.action = #selector(togglePopover)
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
-        // MenuBar Controller — load today's tokens from store
-        let todayTokens = dataStore.fetchDailyUsages(
-            from: Calendar.current.startOfDay(for: Date()),
-            to: Date()
-        ).first?.totalTokens ?? 0
-        let hourlyBuckets = dataStore.fetchHourlyBuckets()
-        menuBarController = MenuBarController(statusItem: statusItem, initialTodayTokens: todayTokens, initialHourlyBuckets: hourlyBuckets)
+        // MenuBar Controller — start with zeros, load real data async
+        menuBarController = MenuBarController(statusItem: statusItem, initialTodayTokens: 0, initialHourlyBuckets: [0, 0, 0])
 
         // Animation timer — runs forever, .common mode so it works during popover interaction
         animationTimer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -49,20 +54,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(animationTimer, forMode: .common)
 
-        // Popover — transient behavior closes on outside click
+        // Popover — dynamic height, transient behavior closes on outside click
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 580)
         popover.behavior = .transient
 
         let popoverView = PopoverView()
             .environmentObject(menuBarController)
             .modelContainer(modelContainer)
-        popover.contentViewController = NSHostingController(rootView: popoverView)
+        let hostingController = NSHostingController(rootView: popoverView)
+        hostingController.sizingOptions = .preferredContentSize
+        popover.contentViewController = hostingController
 
-        // Log Parser + Watcher
+        // Log Parser + Watcher — setup synchronously, heavy work async
         let parser = ClaudeCodeLogParser()
         logWatcher = LogWatcher(watchPaths: parser.watchPaths) { [weak self] line in
-            // Detect session end (Stop hook event)
             if let endedSessionId = parser.parseSessionEnd(logLine: line) {
                 self?.dataStore.endSession(sessionId: endedSessionId)
                 return
@@ -72,12 +77,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.menuBarController.onTokenEvent(event)
         }
 
-        logWatcher.backfill()
-        dataStore.flush()
-        logWatcher.start()
+        // Heavy startup work — run async to avoid blocking app launch
+        Task { @MainActor in
+            logWatcher.backfill()
+            dataStore.flush()
+            dataStore.refreshActiveStatus()
+
+            // Update menu bar with real data after backfill
+            let todayTokens = dataStore.fetchDailyUsages(
+                from: Calendar.current.startOfDay(for: Date()),
+                to: Date()
+            ).first?.totalTokens ?? 0
+            let hourlyBuckets = dataStore.fetchHourlyBuckets()
+            menuBarController.reloadData(todayTokens: todayTokens, hourlyBuckets: hourlyBuckets)
+
+            logWatcher.start()
+        }
+
+        // Periodic refresh of active sessions (every 30s)
+        refreshTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.dataStore.refreshActiveStatus()
+            }
+        }
+        RunLoop.main.add(refreshTimer, forMode: .common)
     }
 
     @MainActor @objc func togglePopover() {
+        guard let event = NSApp.currentEvent else { return }
+
+        // Right-click → show quit menu
+        if event.type == .rightMouseUp {
+            let menu = NSMenu()
+            menu.addItem(NSMenuItem(title: "Quit Token Garden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+            statusItem.menu = menu
+            statusItem.button?.performClick(nil)
+            // Clear menu so left-click goes back to popover
+            DispatchQueue.main.async { [weak self] in
+                self?.statusItem.menu = nil
+            }
+            return
+        }
+
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)

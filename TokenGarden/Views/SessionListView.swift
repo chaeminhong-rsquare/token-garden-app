@@ -3,66 +3,56 @@ import SwiftData
 
 struct SessionListView: View {
     @Query(
-        filter: #Predicate<SessionUsage> { _ in true },
+        filter: #Predicate<SessionUsage> { $0.isActive == true },
         sort: \SessionUsage.lastTime,
         order: .reverse
-    ) private var allSessions: [SessionUsage]
+    ) private var activeSessions: [SessionUsage]
 
-    private var activeSessions: [SessionUsage] {
-        allSessions.filter { $0.isActive }
-    }
-
-    private var recentSessions: [SessionUsage] {
-        let inactive = allSessions.filter { !$0.isActive }
-        return Array(inactive.prefix(5))
-    }
-
-    private var displaySessions: [SessionUsage] {
-        let active = activeSessions
-        if !active.isEmpty { return active }
-        return recentSessions
-    }
-
-    private var sectionTitle: String {
-        activeSessions.isEmpty ? "Recent Sessions" : "Active Sessions"
-    }
-
-    @State private var isExpanded = true
+    @State private var isExpanded = false
 
     var body: some View {
-        if !displaySessions.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
-                Button(action: { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }) {
-                    HStack {
-                        Label(sectionTitle, systemImage: activeSessions.isEmpty ? "clock.fill" : "bolt.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("\(displaySessions.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    }
-                }
-                .buttonStyle(.plain)
-
-                if isExpanded {
-                    ScrollView {
-                        VStack(spacing: 4) {
-                            ForEach(displaySessions, id: \.sessionId) { session in
-                                SessionRow(session: session)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 500)
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: { isExpanded.toggle() }) {
+                HStack {
+                    Label("Active Sessions", systemImage: "bolt.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(activeSessions.count)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
             }
-            .padding(8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                if activeSessions.isEmpty {
+                    Text("No active sessions")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 4)
+                } else {
+                    let content = VStack(spacing: 4) {
+                        ForEach(activeSessions, id: \.sessionId) { session in
+                            SessionRow(session: session)
+                        }
+                    }
+                    if activeSessions.count > 10 {
+                        ScrollView { content }
+                            .scrollIndicators(.never)
+                            .frame(maxHeight: 250)
+                    } else {
+                        content
+                    }
+                }
+            }
         }
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -89,11 +79,9 @@ private struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if session.isActive {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 6, height: 6)
-            }
+            Circle()
+                .fill(.green)
+                .frame(width: 6, height: 6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.projectName)
                     .font(.caption)

@@ -18,9 +18,10 @@ struct ClaudeCodeLogParser: TokenLogParser {
     func parseSessionEnd(logLine: String) -> String? {
         guard let data = logLine.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hookEvent = json["hookEvent"] as? String,
-              hookEvent == "Stop",
-              let sessionId = json["sessionId"] as? String
+              let sessionId = json["sessionId"] as? String,
+              let dataObj = json["data"] as? [String: Any],
+              let hookEvent = dataObj["hookEvent"] as? String,
+              hookEvent == "Stop"
         else { return nil }
         return sessionId
     }

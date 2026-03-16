@@ -131,7 +131,6 @@ struct PopoverView: View {
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
 
-                    // Show selected day stats or normal stats
                     if let date = selectedDate,
                        let usage = allUsages.first(where: {
                            Calendar.current.isDate($0.date, inSameDayAs: date)

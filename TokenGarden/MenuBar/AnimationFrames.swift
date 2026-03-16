@@ -42,11 +42,11 @@ enum AnimationFrames {
     private static func drawSeed(in rect: NSRect) {
         let cx = rect.midX
         let ground = NSBezierPath()
-        ground.move(to: NSPoint(x: cx - 5, y: 4))
-        ground.line(to: NSPoint(x: cx + 5, y: 4))
+        ground.move(to: NSPoint(x: cx - 5, y: 3))
+        ground.line(to: NSPoint(x: cx + 5, y: 3))
         ground.lineWidth = 1.5
         ground.stroke()
-        let seed = NSBezierPath(ovalIn: NSRect(x: cx - 1.5, y: 4.5, width: 3, height: 3))
+        let seed = NSBezierPath(ovalIn: NSRect(x: cx - 1.5, y: 3.5, width: 3, height: 3))
         seed.fill()
     }
 
@@ -54,12 +54,12 @@ enum AnimationFrames {
     private static func drawSprout(in rect: NSRect) {
         let cx = rect.midX
         let ground = NSBezierPath()
-        ground.move(to: NSPoint(x: cx - 5, y: 4))
-        ground.line(to: NSPoint(x: cx + 5, y: 4))
+        ground.move(to: NSPoint(x: cx - 5, y: 3))
+        ground.line(to: NSPoint(x: cx + 5, y: 3))
         ground.lineWidth = 1.5
         ground.stroke()
         let stem = NSBezierPath()
-        stem.move(to: NSPoint(x: cx, y: 4))
+        stem.move(to: NSPoint(x: cx, y: 3))
         stem.line(to: NSPoint(x: cx, y: 10))
         stem.lineWidth = 1.5
         stem.stroke()
