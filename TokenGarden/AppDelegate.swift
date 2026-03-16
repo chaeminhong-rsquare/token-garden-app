@@ -114,13 +114,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: "Quit Token Garden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
             statusItem.menu = menu
             statusItem.button?.performClick(nil)
-            // Clear menu so left-click goes back to popover
-            DispatchQueue.main.async { [weak self] in
+            // Clear menu after it closes so left-click works for popover
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 self?.statusItem.menu = nil
             }
             return
         }
 
+        // Left-click → toggle popover
+        guard statusItem.menu == nil else { return }
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
