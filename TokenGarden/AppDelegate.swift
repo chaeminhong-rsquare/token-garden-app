@@ -84,9 +84,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             logWatcher.backfill()
             dataStore.flush()
 
-            // refreshActiveStatus runs ps+lsof on background, updates DB on MainActor
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                self?.dataStore.refreshActiveStatus()
+            // Refresh active sessions: ps+lsof on background, DB update on main
+            DispatchQueue.global(qos: .utility).async {
+                let activeProjects = TokenDataStore.getActiveClaudeProjects()
+                DispatchQueue.main.async { [weak self] in
+                    self?.dataStore.applyActiveStatus(activeProjects: activeProjects)
+                }
             }
 
             // Update menu bar with real data after backfill
@@ -103,7 +106,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Periodic refresh of active sessions (every 30s)
         refreshTimer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             DispatchQueue.global(qos: .utility).async {
-                self?.dataStore.refreshActiveStatus()
+                let activeProjects = TokenDataStore.getActiveClaudeProjects()
+                DispatchQueue.main.async {
+                    self?.dataStore.applyActiveStatus(activeProjects: activeProjects)
+                }
             }
         }
         RunLoop.main.add(refreshTimer, forMode: .common)

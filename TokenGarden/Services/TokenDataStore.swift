@@ -84,15 +84,8 @@ class TokenDataStore: ObservableObject {
         }
     }
 
-    /// Refresh active status by checking running claude processes.
-    nonisolated func refreshActiveStatus() {
-        let activeProjects = Self.getActiveClaudeProjects()
-        Task { @MainActor in
-            self.applyActiveStatus(activeProjects: activeProjects)
-        }
-    }
-
-    private func applyActiveStatus(activeProjects: Set<String>) {
+    /// Apply active status with pre-fetched project names. Must be called on MainActor.
+    func applyActiveStatus(activeProjects: Set<String>) {
         let descriptor = FetchDescriptor<SessionUsage>()
         guard let sessions = try? modelContext.fetch(descriptor) else { return }
 
@@ -111,8 +104,8 @@ class TokenDataStore: ObservableObject {
         try? modelContext.save()
     }
 
-    /// Returns project names for running claude processes (runs on background thread).
-    private nonisolated static func getActiveClaudeProjects() -> Set<String> {
+    /// Returns project names for running claude processes. Safe to call from any thread.
+    nonisolated static func getActiveClaudeProjects() -> Set<String> {
         let psPipe = Pipe()
         let psProc = Process()
         psProc.executableURL = URL(fileURLWithPath: "/bin/ps")
