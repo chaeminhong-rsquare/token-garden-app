@@ -13,18 +13,20 @@ struct PopoverView: View {
     }
 
     private var weekTokens: Int {
-        let calendar = Calendar.current
-        let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2 // Monday
+        let weekStart = calendar.dateComponents([.calendar, .yearForWeekOfYear, .weekOfYear], from: Date()).date!
         return allUsages
-            .filter { $0.date >= calendar.startOfDay(for: weekAgo) }
+            .filter { $0.date >= weekStart }
             .reduce(0) { $0 + $1.totalTokens }
     }
 
     private var monthTokens: Int {
         let calendar = Calendar.current
-        let monthAgo = calendar.date(byAdding: .month, value: -1, to: Date())!
+        let comps = calendar.dateComponents([.year, .month], from: Date())
+        let monthStart = calendar.date(from: comps)!
         return allUsages
-            .filter { $0.date >= calendar.startOfDay(for: monthAgo) }
+            .filter { $0.date >= monthStart }
             .reduce(0) { $0 + $1.totalTokens }
     }
 
@@ -50,15 +52,17 @@ struct PopoverView: View {
     }
 
     private var weekProjects: [(name: String, tokens: Int)] {
-        let calendar = Calendar.current
-        let weekAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
-        return projectsForUsages(allUsages.filter { $0.date >= calendar.startOfDay(for: weekAgo) })
+        var calendar = Calendar.current
+        calendar.firstWeekday = 2
+        let weekStart = calendar.dateComponents([.calendar, .yearForWeekOfYear, .weekOfYear], from: Date()).date!
+        return projectsForUsages(allUsages.filter { $0.date >= weekStart })
     }
 
     private var monthProjects: [(name: String, tokens: Int)] {
         let calendar = Calendar.current
-        let monthAgo = calendar.date(byAdding: .month, value: -1, to: Date())!
-        return projectsForUsages(allUsages.filter { $0.date >= calendar.startOfDay(for: monthAgo) })
+        let comps = calendar.dateComponents([.year, .month], from: Date())
+        let monthStart = calendar.date(from: comps)!
+        return projectsForUsages(allUsages.filter { $0.date >= monthStart })
     }
 
     private var selectedDayProjects: [(name: String, tokens: Int)]? {

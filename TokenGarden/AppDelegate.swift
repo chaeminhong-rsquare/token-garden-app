@@ -74,10 +74,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Log Parser + Watcher — setup synchronously, heavy work async
         let parser = ClaudeCodeLogParser()
         logWatcher = LogWatcher(watchPaths: parser.watchPaths) { [weak self] line in
-            if let endedSessionId = parser.parseSessionEnd(logLine: line) {
-                self?.dataStore.endSession(sessionId: endedSessionId)
-                return
-            }
             guard let event = parser.parse(logLine: line) else { return }
             self?.dataStore.record(event)
             self?.menuBarController.onTokenEvent(event)
