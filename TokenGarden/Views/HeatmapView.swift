@@ -189,29 +189,32 @@ struct HeatmapView: View {
         let cornerR: CGFloat = range == .year ? 1 : 2
         if index < gridData.count {
             let cell = gridData[index]
-            let isSelected = selectedDate != nil &&
-                Calendar.current.isDate(cell.date, inSameDayAs: selectedDate!)
-            RoundedRectangle(cornerRadius: cornerR)
-                .fill(colors[cell.level])
-                .frame(width: cellSize, height: cellSize)
-                .overlay(
-                    isSelected ?
-                        RoundedRectangle(cornerRadius: cornerR)
-                            .stroke(Color.primary, lineWidth: 1.5) : nil
-                )
-                .help(cell.tooltip)
-                .onTapGesture {
-                    do {
+            if cell.level < 0 {
+                // Future placeholder — invisible
+                Color.clear
+                    .frame(width: cellSize, height: cellSize)
+            } else {
+                let isSelected = selectedDate != nil &&
+                    Calendar.current.isDate(cell.date, inSameDayAs: selectedDate!)
+                RoundedRectangle(cornerRadius: cornerR)
+                    .fill(colors[cell.level])
+                    .frame(width: cellSize, height: cellSize)
+                    .overlay(
+                        isSelected ?
+                            RoundedRectangle(cornerRadius: cornerR)
+                                .stroke(Color.primary, lineWidth: 1.5) : nil
+                    )
+                    .help(cell.tooltip)
+                    .onTapGesture {
                         if isSelected {
                             selectedDate = nil
                         } else {
                             selectedDate = cell.date
                         }
                     }
-                }
+            }
         } else {
-            RoundedRectangle(cornerRadius: cornerR)
-                .fill(Color.gray.opacity(0.1))
+            Color.clear
                 .frame(width: cellSize, height: cellSize)
         }
     }
@@ -234,8 +237,16 @@ struct HeatmapView: View {
     private func buildGrid(columns: Int) -> [GridCell] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let totalDays = columns * rows
 
+        // weekday: 1=Sun, 2=Mon, ..., 7=Sat → row index (Sun=0, Mon=1, ...)
+        let todayWeekday = calendar.component(.weekday, from: today)
+        let todayRow = todayWeekday - 1 // 0-based row for today
+
+        // Last column ends at today's row. Total grid slots = columns * rows
+        // Days after today in the last column are empty (future)
+        let totalSlots = columns * rows
+        let futureSlotsInLastCol = rows - 1 - todayRow
+        let totalDays = totalSlots - futureSlotsInLastCol
         let startDate = calendar.date(byAdding: .day, value: -(totalDays - 1), to: today)!
 
         var usageByDate: [Date: Int] = [:]
@@ -244,28 +255,35 @@ struct HeatmapView: View {
             usageByDate[day] = (usageByDate[day] ?? 0) + usage.tokens
         }
 
-        var totals: [Int] = []
-        var dates: [Date] = []
+        // Build date/token arrays for actual days
+        var dayDates: [Date] = []
+        var dayTotals: [Int] = []
         for i in 0..<totalDays {
             let date = calendar.date(byAdding: .day, value: i, to: startDate)!
-            dates.append(date)
-            totals.append(usageByDate[date] ?? 0)
+            dayDates.append(date)
+            dayTotals.append(usageByDate[date] ?? 0)
         }
-        let gridLevels = HeatmapCalculator.calculateLevels(dailyTotals: totals)
+        let gridLevels = HeatmapCalculator.calculateLevels(dailyTotals: dayTotals)
 
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "en_US")
         dateFormatter.dateStyle = .medium
 
+        // Fill grid: totalSlots, with future slots as empty
         var grid: [GridCell] = []
-        for i in 0..<totalDays {
-            let tooltip = "\(dateFormatter.string(from: dates[i])): \(TokenFormatter.format(totals[i]))"
-            grid.append(GridCell(
-                date: dates[i],
-                tokens: totals[i],
-                level: i < gridLevels.count ? gridLevels[i] : 0,
-                tooltip: tooltip
-            ))
+        for i in 0..<totalSlots {
+            if i < totalDays {
+                let tooltip = "\(dateFormatter.string(from: dayDates[i])): \(TokenFormatter.format(dayTotals[i]))"
+                grid.append(GridCell(
+                    date: dayDates[i],
+                    tokens: dayTotals[i],
+                    level: i < gridLevels.count ? gridLevels[i] : 0,
+                    tooltip: tooltip
+                ))
+            } else {
+                // Future placeholder
+                grid.append(GridCell(date: today, tokens: -1, level: -1, tooltip: ""))
+            }
         }
 
         return grid

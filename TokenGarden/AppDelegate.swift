@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var modelContainer: ModelContainer!
     private var animationTimer: Timer!
     private var refreshTimer: Timer!
+    private var updateChecker: UpdateChecker!
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -54,12 +55,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(animationTimer, forMode: .common)
 
+        // Update checker
+        updateChecker = UpdateChecker()
+        updateChecker.check()
+
         // Popover — dynamic height, transient behavior closes on outside click
         popover = NSPopover()
         popover.behavior = .transient
 
         let popoverView = PopoverView()
             .environmentObject(menuBarController)
+            .environmentObject(updateChecker)
             .modelContainer(modelContainer)
         let hostingController = NSHostingController(rootView: popoverView)
         hostingController.sizingOptions = .preferredContentSize

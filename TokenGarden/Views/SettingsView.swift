@@ -8,6 +8,7 @@ enum MenuBarDisplayMode: String, CaseIterable {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var updateChecker: UpdateChecker
     @AppStorage("logPath") private var logPath = "~/.claude/"
     @AppStorage("displayMode") private var displayMode = MenuBarDisplayMode.iconOnly.rawValue
     @AppStorage("launchAtLogin") private var launchAtLogin = false
@@ -105,6 +106,32 @@ struct SettingsView: View {
                             launchAtLogin = !newValue
                         }
                     }
+            }
+
+            Divider()
+
+            // Update
+            HStack {
+                Text("v\(updateChecker.currentVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if updateChecker.isChecking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if updateChecker.hasUpdate, let version = updateChecker.latestVersion {
+                    Button("Update to v\(version)") {
+                        if let url = updateChecker.downloadURL {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .controlSize(.small)
+                } else {
+                    Button("Check for Updates") {
+                        updateChecker.check()
+                    }
+                    .controlSize(.small)
+                }
             }
 
             Divider()
