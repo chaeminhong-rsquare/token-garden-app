@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import SwiftData
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
@@ -13,10 +14,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateChecker: UpdateChecker!
 
     // Session refresh: background thread writes, main thread reads
-    private let refreshLock = NSLock()
-    private var pendingActiveProjects: Set<String>?
+    private nonisolated(unsafe) let refreshLock = NSLock()
+    private nonisolated(unsafe) var pendingActiveProjects: Set<String>?
 
-    @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Single instance guard
         let bundleId = Bundle.main.bundleIdentifier ?? "com.tokengarden"
@@ -132,7 +132,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @MainActor
     private func applyPendingRefreshIfNeeded() {
         refreshLock.lock()
         let projects = pendingActiveProjects
@@ -147,7 +146,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Popover
 
-    @MainActor @objc func togglePopover() {
+    @objc func togglePopover() {
         guard let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp {

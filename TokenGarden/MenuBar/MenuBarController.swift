@@ -12,6 +12,7 @@ class MenuBarController: ObservableObject {
     // Track last 3 hours of tokens for mini graph
     private var hourlyBuckets: [Int] = [0, 0, 0]
     private var bucketHours: [Int] = [-1, -1, -1]
+    private var lastKnownDay: Date = .distantPast
 
     init(
         statusItem: NSStatusItem,
@@ -22,6 +23,7 @@ class MenuBarController: ObservableObject {
         self.statusItem = statusItem
         self.todayTokens = initialTodayTokens
         self.displayMode = displayMode
+        lastKnownDay = Calendar.current.startOfDay(for: Date())
         refreshBucketHours()
         // Load persisted hourly data
         if initialHourlyBuckets.count == 3 {
@@ -63,11 +65,20 @@ class MenuBarController: ObservableObject {
     private func refreshBucketHours() {
         let cal = Calendar.current
         let now = Date()
+
+        // Reset all state when the day changes
+        let today = cal.startOfDay(for: now)
+        if today != lastKnownDay {
+            lastKnownDay = today
+            todayTokens = 0
+            hourlyBuckets = [0, 0, 0]
+            bucketHours = [-1, -1, -1]
+        }
+
         let currentHour = cal.component(.hour, from: now)
         let expected = [currentHour - 2, currentHour - 1, currentHour]
 
         if bucketHours != expected {
-            // Shift buckets when hour changes
             var newBuckets = [0, 0, 0]
             for (i, h) in expected.enumerated() {
                 if let oldIdx = bucketHours.firstIndex(of: h) {
