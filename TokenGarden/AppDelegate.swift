@@ -29,13 +29,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // SwiftData
-        let schema = Schema([DailyUsage.self, ProjectUsage.self, SessionUsage.self])
+        let schema = Schema([DailyUsage.self, ProjectUsage.self, SessionUsage.self, HourlyUsage.self])
         let storeURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("TokenGarden", isDirectory: true)
             .appendingPathComponent("TokenGarden.store")
         try? FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let config = ModelConfiguration("TokenGarden", schema: schema, url: storeURL)
-        modelContainer = try! ModelContainer(for: schema, configurations: [config])
+        do {
+            modelContainer = try ModelContainer(for: schema, configurations: [config])
+        } catch {
+            // New model added — reset store and backfill offsets to rebuild from logs
+            let storeDir = storeURL.deletingLastPathComponent()
+            try? FileManager.default.removeItem(at: storeDir)
+            try? FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+            UserDefaults.standard.removeObject(forKey: "LogWatcherOffsets")
+            modelContainer = try! ModelContainer(for: schema, configurations: [config])
+        }
         dataStore = TokenDataStore(modelContainer: modelContainer)
 
         // Status Item

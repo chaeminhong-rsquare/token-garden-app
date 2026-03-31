@@ -33,6 +33,18 @@ class TokenDataStore: ObservableObject {
         daily.cacheCreationTokens += event.cacheCreationTokens
         daily.cacheReadTokens += event.cacheReadTokens
 
+        // Hourly bucket
+        let hour = Calendar.current.component(.hour, from: event.timestamp)
+        let hourlyDescriptor = FetchDescriptor<HourlyUsage>(
+            predicate: #Predicate { $0.date == day && $0.hour == hour }
+        )
+        if let existing = try? modelContext.fetch(hourlyDescriptor).first {
+            existing.tokens += event.totalTokens
+        } else {
+            let hourly = HourlyUsage(date: day, hour: hour, tokens: event.totalTokens)
+            modelContext.insert(hourly)
+        }
+
         if let projectName = event.projectName {
             if let existing = daily.projectBreakdowns.first(where: { $0.projectName == projectName }) {
                 existing.tokens += event.totalTokens
@@ -170,6 +182,32 @@ class TokenDataStore: ObservableObject {
             sortBy: [SortDescriptor(\.date)]
         )
         return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    /// Returns 24 hourly token totals for a given day, computed from SessionUsage timestamps
+    func fetchHourlyTokens(for date: Date) -> [Int] {
+        let cal = Calendar.current
+        let dayStart = cal.startOfDay(for: date)
+        guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else {
+            return Array(repeating: 0, count: 24)
+        }
+
+        let descriptor = FetchDescriptor<SessionUsage>(
+            predicate: #Predicate<SessionUsage> { session in
+                session.startTime < dayEnd && session.lastTime >= dayStart
+            }
+        )
+        guard let sessions = try? modelContext.fetch(descriptor), !sessions.isEmpty else {
+            return Array(repeating: 0, count: 24)
+        }
+
+        var buckets = Array(repeating: 0, count: 24)
+        for session in sessions {
+            // Distribute tokens to the hour of startTime (simple attribution)
+            let hour = cal.component(.hour, from: max(session.startTime, dayStart))
+            buckets[hour] += session.totalTokens
+        }
+        return buckets
     }
 
     /// Returns token totals for the last 3 hours: [h-2, h-1, h]

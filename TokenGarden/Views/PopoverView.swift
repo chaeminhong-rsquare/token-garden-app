@@ -34,6 +34,22 @@ struct PopoverView: View {
         allUsages.map { (date: $0.date, tokens: $0.totalTokens) }
     }
 
+    @Query private var allHourlyUsages: [HourlyUsage]
+
+    private var activeHourlyTokens: [Int] {
+        let cal = Calendar.current
+        let targetDay = cal.startOfDay(for: selectedDate ?? Date())
+
+        let dayEntries = allHourlyUsages.filter { $0.date == targetDay }
+
+        var buckets = Array(repeating: 0, count: 24)
+        for entry in dayEntries {
+            guard entry.hour >= 0 && entry.hour < 24 else { continue }
+            buckets[entry.hour] += entry.tokens
+        }
+        return buckets
+    }
+
     // MARK: - Project data by time range
 
     private func projectsForUsages(_ usages: [DailyUsage]) -> [(name: String, tokens: Int)] {
@@ -159,6 +175,12 @@ struct PopoverView: View {
                         )
                         .padding(.horizontal, 12)
                     }
+
+                    HourlyChartView(
+                        hourlyTokens: activeHourlyTokens,
+                        isToday: selectedDate == nil || Calendar.current.isDateInToday(selectedDate!)
+                    )
+                        .padding(.horizontal, 12)
 
                     ProjectListView(
                         todayProjects: todayProjects,
