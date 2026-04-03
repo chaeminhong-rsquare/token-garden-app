@@ -51,19 +51,26 @@ struct CredentialsManager {
         return str.data(using: .utf8)
     }
 
-    /// Finds the claude binary by checking common install locations
+    /// Finds the claude binary by checking common install locations and PATH
     private static func claudePath() -> String? {
         let candidates = [
             "\(NSHomeDirectory())/.local/bin/claude",
             "/usr/local/bin/claude",
             "/opt/homebrew/bin/claude",
         ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        // Check direct paths first (including symlinks)
+        for path in candidates {
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
     }
 
     /// Runs `claude auth status` CLI command to get current account info
     nonisolated static func fetchAuthStatus() -> ClaudeAuthInfo? {
-        guard let claude = claudePath() else { return nil }
+        guard let claude = claudePath() else {
+            // Fallback: read plan from keychain if CLI not found
+            return fetchAuthStatusFromKeychain()
+        }
 
         let pipe = Pipe()
         let process = Process()
@@ -71,12 +78,14 @@ struct CredentialsManager {
         process.arguments = ["auth", "status"]
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        // Ensure HOME is set for claude to find its config
+        process.environment = ProcessInfo.processInfo.environment
 
         do {
             try process.run()
             process.waitUntilExit()
         } catch {
-            return nil
+            return fetchAuthStatusFromKeychain()
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -84,7 +93,9 @@ struct CredentialsManager {
               let loggedIn = json["loggedIn"] as? Bool, loggedIn,
               let email = json["email"] as? String,
               let subscriptionType = json["subscriptionType"] as? String
-        else { return nil }
+        else {
+            return fetchAuthStatusFromKeychain()
+        }
 
         let plan: String
         switch subscriptionType.lowercased() {
@@ -96,6 +107,25 @@ struct CredentialsManager {
 
         let orgName = json["orgName"] as? String
         return ClaudeAuthInfo(email: email, plan: plan, orgName: orgName)
+    }
+
+    /// Fallback: reads plan from keychain when CLI is unavailable
+    private nonisolated static func fetchAuthStatusFromKeychain() -> ClaudeAuthInfo? {
+        guard let credsData = currentKeychainData(),
+              let json = try? JSONSerialization.jsonObject(with: credsData) as? [String: Any],
+              let oauth = json["claudeAiOauth"] as? [String: Any]
+        else { return nil }
+
+        let subscriptionType = oauth["subscriptionType"] as? String ?? "pro"
+        let plan: String
+        switch subscriptionType.lowercased() {
+        case "max": plan = "Max"
+        case "pro": plan = "Pro"
+        case "free": plan = "Free"
+        default: plan = subscriptionType.capitalized
+        }
+
+        return ClaudeAuthInfo(email: "claude.ai account", plan: plan, orgName: nil)
     }
 
     /// Extracts OAuth access token from stored credentials JSON (keychain format)
