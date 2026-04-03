@@ -9,7 +9,9 @@ class ProfileManager: ObservableObject {
 
     @Published var activeProfile: Profile?
     @Published var usageLimitsCache: [String: UsageLimits] = [:]  // profileName → limits
+    @Published var currentModel: String = ClaudeSettingsManager.currentModel() ?? "opus"
     private let cacheTTL: TimeInterval = 300  // 5 minutes
+    private let modelDowngradeThreshold: Double = 0.80
 
     init(modelContext: ModelContext, credentialsManager: CredentialsManager = CredentialsManager()) {
         self.modelContext = modelContext
@@ -109,7 +111,11 @@ class ProfileManager: ObservableObject {
     func balanceIfNeeded() {
         let allDescriptor = FetchDescriptor<Profile>()
         guard let profiles = try? modelContext.fetch(allDescriptor),
-              profiles.count >= 2 else { return }
+              profiles.count >= 2 else {
+            // Single profile: still check model downgrade
+            autoBalanceModel()
+            return
+        }
 
         var leastUsed: Profile?
         var leastScore = Double.greatestFiniteMagnitude
@@ -128,8 +134,37 @@ class ProfileManager: ObservableObject {
             }
         }
 
-        guard let target = leastUsed, target.name != activeProfile?.name else { return }
-        switchTo(profileName: target.name)
+        if let target = leastUsed, target.name != activeProfile?.name {
+            switchTo(profileName: target.name)
+        }
+
+        autoBalanceModel()
+    }
+
+    /// Downgrades to Sonnet when all profiles' Opus is near limit, upgrades back when headroom available
+    private func autoBalanceModel() {
+        guard UserDefaults.standard.bool(forKey: "modelAutoBalancingEnabled") else { return }
+        guard !usageLimitsCache.isEmpty else { return }
+
+        let allAboveThreshold = usageLimitsCache.values.allSatisfy { limits in
+            max(limits.fiveHourUtilization, limits.sevenDayUtilization) >= modelDowngradeThreshold
+        }
+
+        let anyBelowHalf = usageLimitsCache.values.contains { limits in
+            max(limits.fiveHourUtilization, limits.sevenDayUtilization) < 0.5
+        }
+
+        if allAboveThreshold && currentModel != "sonnet" {
+            setModel("sonnet")
+        } else if !allAboveThreshold && anyBelowHalf && currentModel != "opus" {
+            setModel("opus")
+        }
+    }
+
+    func setModel(_ model: String) {
+        let settingsModel: String? = (model == "opus") ? nil : model
+        ClaudeSettingsManager.setModel(settingsModel)
+        currentModel = model
     }
 
     func todayTokens(for profileName: String) -> Int {

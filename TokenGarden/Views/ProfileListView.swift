@@ -9,6 +9,7 @@ struct ProfileListView: View {
     @State private var detectedAuth: ClaudeAuthInfo?
     @State private var isDetecting = false
     @AppStorage("autoBalancingEnabled") private var autoBalancingEnabled = false
+    @AppStorage("modelAutoBalancingEnabled") private var modelAutoBalancingEnabled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -113,6 +114,9 @@ struct ProfileListView: View {
             // Settings toggles
             VStack(alignment: .leading, spacing: 6) {
                 Toggle("Auto Balancing", isOn: $autoBalancingEnabled)
+                .controlSize(.small)
+
+                Toggle("Model Auto Balancing", isOn: $modelAutoBalancingEnabled)
                 .controlSize(.small)
 
                 #if DEBUG
