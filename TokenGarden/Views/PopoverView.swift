@@ -5,6 +5,7 @@ struct PopoverView: View {
     @EnvironmentObject var menuBarController: MenuBarController
     @Query(sort: \DailyUsage.date) private var allUsages: [DailyUsage]
     @State private var showSettings = false
+    @State private var showProfiles = false
     @State private var selectedDate: Date?
 
     private var todayUsage: DailyUsage? {
@@ -116,17 +117,20 @@ struct PopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                if showSettings {
-                    Button(action: { showSettings = false }) {
+                if showSettings || showProfiles {
+                    Button(action: {
+                        showSettings = false
+                        showProfiles = false
+                    }) {
                         Image(systemName: "chevron.left")
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
-                Text(showSettings ? "Settings" : "Token Garden")
+                Text(showProfiles ? "Profiles" : (showSettings ? "Settings" : "Token Garden"))
                     .font(.headline)
                 Spacer()
-                if !showSettings {
+                if !showSettings && !showProfiles {
                     Button(action: { showSettings = true }) {
                         Image(systemName: "gearshape")
                             .foregroundStyle(.secondary)
@@ -145,11 +149,16 @@ struct PopoverView: View {
                     .frame(minHeight: 200)
             } else if showSettings {
                 SettingsView()
+            } else if showProfiles {
+                ProfileListView()
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    HeatmapView(dailyUsages: heatmapData, selectedDate: $selectedDate)
+                    ProfileBannerView(onTap: { showProfiles = true })
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
+
+                    HeatmapView(dailyUsages: heatmapData, selectedDate: $selectedDate)
+                        .padding(.horizontal, 12)
 
                     if let date = selectedDate,
                        let usage = allUsages.first(where: {

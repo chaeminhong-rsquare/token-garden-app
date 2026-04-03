@@ -12,10 +12,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var modelContainer: ModelContainer!
     private var animationTimer: Timer!
     private var updateChecker: UpdateChecker!
+    private var profileManager: ProfileManager!
 
     // Session refresh: background thread writes, main thread reads
     private nonisolated(unsafe) let refreshLock = NSLock()
     private nonisolated(unsafe) var pendingActiveProjects: Set<String>?
+    private var lastBalancedSessionId: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Single instance guard
@@ -29,7 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // SwiftData
-        let schema = Schema([DailyUsage.self, ProjectUsage.self, SessionUsage.self, HourlyUsage.self])
+        let schema = Schema([DailyUsage.self, ProjectUsage.self, SessionUsage.self, HourlyUsage.self, Profile.self, ProfileTokenUsage.self])
         let storeURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("TokenGarden", isDirectory: true)
             .appendingPathComponent("TokenGarden.store")
@@ -46,6 +48,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             modelContainer = try! ModelContainer(for: schema, configurations: [config])
         }
         dataStore = TokenDataStore(modelContainer: modelContainer)
+
+        // Profile Manager
+        profileManager = ProfileManager(modelContext: modelContainer.mainContext)
+        if let activeProfile = profileManager.activeProfile {
+            dataStore.activeProfileName = activeProfile.name
+        }
 
         // Status Item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -79,6 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let popoverView = PopoverView()
             .environmentObject(menuBarController)
             .environmentObject(updateChecker)
+            .environmentObject(profileManager)
             .modelContainer(modelContainer)
         let hostingController = NSHostingController(rootView: popoverView)
         hostingController.sizingOptions = .preferredContentSize
@@ -90,6 +99,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let event = parser.parse(logLine: line) else { return }
             self?.dataStore.record(event)
             self?.menuBarController.onTokenEvent(event)
+
+            // Auto-balance only when session changes
+            if let sessionId = event.sessionId,
+               sessionId != self?.lastBalancedSessionId,
+               UserDefaults.standard.bool(forKey: "autoBalancingEnabled") {
+                self?.lastBalancedSessionId = sessionId
+                self?.profileManager.balanceIfNeeded()
+                if let name = self?.profileManager.activeProfile?.name {
+                    self?.dataStore.activeProfileName = name
+                }
+            }
         }
 
         // Backfill on background thread — UI stays responsive
@@ -113,6 +133,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Background session refresh loop
         startSessionRefreshLoop()
+
+        profileManager.startTokenKeeper()
     }
 
     /// Run refresh immediately on background, result applied on next timer tick

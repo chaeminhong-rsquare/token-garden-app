@@ -6,6 +6,7 @@ class TokenDataStore: ObservableObject {
     private let modelContainer: ModelContainer
     private let modelContext: ModelContext
     private var pendingSaveCount = 0
+    var activeProfileName: String?
     private static let saveInterval = 10
 
     init(modelContainer: ModelContainer) {
@@ -56,6 +57,19 @@ class TokenDataStore: ObservableObject {
                 )
                 projectUsage.dailyUsage = daily
                 daily.projectBreakdowns.append(projectUsage)
+            }
+        }
+
+        // Profile token tracking
+        if let profileName = activeProfileName {
+            let profileDescriptor = FetchDescriptor<ProfileTokenUsage>(
+                predicate: #Predicate { $0.profileName == profileName && $0.date == day }
+            )
+            if let existing = try? modelContext.fetch(profileDescriptor).first {
+                existing.tokens += event.totalTokens
+            } else {
+                let usage = ProfileTokenUsage(profileName: profileName, date: day, tokens: event.totalTokens)
+                modelContext.insert(usage)
             }
         }
 
