@@ -3,12 +3,14 @@ import SwiftData
 
 struct PopoverView: View {
     @EnvironmentObject var menuBarController: MenuBarController
+    @EnvironmentObject var dataStore: TokenDataStore
     @Query(sort: \DailyUsage.date) private var allUsages: [DailyUsage]
     enum Tab { case overview, accounts }
     @State private var activeTab: Tab = .overview
     @State private var showSettings = false
     @State private var showProfiles = false
     @State private var selectedDate: Date?
+    @State private var activeHourlyTokens: [Int] = Array(repeating: 0, count: 24)
 
     private var todayUsage: DailyUsage? {
         let today = Calendar.current.startOfDay(for: Date())
@@ -37,20 +39,9 @@ struct PopoverView: View {
         allUsages.map { (date: $0.date, tokens: $0.totalTokens) }
     }
 
-    @Query private var allHourlyUsages: [HourlyUsage]
-
-    private var activeHourlyTokens: [Int] {
-        let cal = Calendar.current
-        let targetDay = cal.startOfDay(for: selectedDate ?? Date())
-
-        let dayEntries = allHourlyUsages.filter { $0.date == targetDay }
-
-        var buckets = Array(repeating: 0, count: 24)
-        for entry in dayEntries {
-            guard entry.hour >= 0 && entry.hour < 24 else { continue }
-            buckets[entry.hour] += entry.tokens
-        }
-        return buckets
+    private func reloadHourlyTokens() {
+        let target = selectedDate ?? Date()
+        activeHourlyTokens = dataStore.fetchHourlyUsageBuckets(for: target)
     }
 
     // MARK: - Project data by time range
@@ -100,20 +91,34 @@ struct PopoverView: View {
         return formatter.string(from: date)
     }
 
+    @State private var cachedPathState: PathState = .unknown
+
+    private enum PathState {
+        case unknown
+        case missing
+        case unreadable
+        case ok
+    }
+
     private var emptyStateReason: EmptyStateReason? {
+        switch cachedPathState {
+        case .missing: return .noClaudeCode
+        case .unreadable: return .noPermission
+        case .ok, .unknown:
+            return allUsages.isEmpty ? .noData : nil
+        }
+    }
+
+    private func refreshPathState() {
         let logPath = UserDefaults.standard.string(forKey: "logPath") ?? "~/.claude/"
         let expandedPath = NSString(string: logPath).expandingTildeInPath
-
         if !FileManager.default.fileExists(atPath: expandedPath) {
-            return .noClaudeCode
+            cachedPathState = .missing
+        } else if !FileManager.default.isReadableFile(atPath: expandedPath) {
+            cachedPathState = .unreadable
+        } else {
+            cachedPathState = .ok
         }
-        if !FileManager.default.isReadableFile(atPath: expandedPath) {
-            return .noPermission
-        }
-        if allUsages.isEmpty {
-            return .noData
-        }
-        return nil
     }
 
     var body: some View {
@@ -234,5 +239,15 @@ struct PopoverView: View {
         .animation(nil, value: showSettings)
         .animation(nil, value: showProfiles)
         .animation(nil, value: activeTab)
+        .onAppear {
+            refreshPathState()
+            reloadHourlyTokens()
+        }
+        .onChange(of: selectedDate) { _, _ in
+            reloadHourlyTokens()
+        }
+        .onChange(of: allUsages.count) { _, _ in
+            reloadHourlyTokens()
+        }
     }
 }

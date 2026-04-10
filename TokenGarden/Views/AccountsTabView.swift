@@ -245,6 +245,15 @@ private struct AccountDailyChartView: View {
 
     private let dayCount = 28
 
+    init() {
+        let cutoff = Calendar.current.startOfDay(
+            for: Calendar.current.date(byAdding: .day, value: -28, to: Date()) ?? Date()
+        )
+        _allProfileUsages = Query(
+            filter: #Predicate<ProfileTokenUsage> { $0.date >= cutoff }
+        )
+    }
+
     private var profileNames: [String] {
         Array(Set(allProfileUsages.map(\.profileName))).sorted()
     }

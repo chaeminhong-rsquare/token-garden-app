@@ -185,15 +185,14 @@ class ProfileManager: ObservableObject {
 
         let creds = profile.credentialsJSON
         let profileName = profile.name
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        Task.detached(priority: .utility) { [weak self] in
             let token = CredentialsManager.oauthToken(from: creds)
                 ?? CredentialsManager.currentOAuthToken()
             guard let token else { return }
-            let limits = CredentialsManager.fetchUsageLimits(oauthToken: token)
-            DispatchQueue.main.async {
-                if let limits {
-                    self?.usageLimitsCache[profileName] = limits
-                }
+            let limits = await CredentialsManager.fetchUsageLimits(oauthToken: token)
+            guard let limits else { return }
+            await MainActor.run {
+                self?.usageLimitsCache[profileName] = limits
             }
         }
     }
@@ -238,41 +237,33 @@ class ProfileManager: ObservableObject {
         let activeCredentials = activeProfile?.credentialsJSON
         let credsMgr = credentialsManager
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            for (_, credentials) in credentialPairs {
-                guard credsMgr.writeCredentials(credentials) else { continue }
-
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                process.arguments = ["claude", "--print-access-token"]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = FileHandle.nullDevice
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                } catch {
-                    continue
+        Task.detached(priority: .utility) { [weak self] in
+            // Always restore active credentials on exit, even if any step fails.
+            defer {
+                if let activeCredentials {
+                    _ = credsMgr.writeCredentials(activeCredentials)
                 }
             }
 
-            // Read back refreshed credentials and restore active
-            DispatchQueue.main.async {
+            for (_, credentials) in credentialPairs {
+                guard credsMgr.writeCredentials(credentials) else { continue }
+                _ = await ProcessRunner.run(
+                    executable: "/usr/bin/env",
+                    arguments: ["claude", "--print-access-token"]
+                )
+            }
+
+            // Read back refreshed credentials and restore active on main actor
+            await MainActor.run {
                 guard let self else { return }
-                MainActor.assumeIsolated {
-                    let descriptor = FetchDescriptor<Profile>()
-                    guard let profiles = try? self.modelContext.fetch(descriptor) else { return }
-                    for profile in profiles {
-                        if let refreshed = self.credentialsManager.readCredentials() {
-                            profile.credentialsJSON = refreshed
-                        }
+                let descriptor = FetchDescriptor<Profile>()
+                guard let profiles = try? self.modelContext.fetch(descriptor) else { return }
+                for profile in profiles {
+                    if let refreshed = self.credentialsManager.readCredentials() {
+                        profile.credentialsJSON = refreshed
                     }
-                    // Restore active profile's credentials
-                    if let activeCreds = activeCredentials {
-                        _ = self.credentialsManager.writeCredentials(activeCreds)
-                    }
-                    try? self.modelContext.save()
                 }
+                try? self.modelContext.save()
             }
         }
     }

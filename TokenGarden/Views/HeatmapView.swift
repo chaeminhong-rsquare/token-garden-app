@@ -47,6 +47,14 @@ struct HeatmapView: View {
     let dailyUsages: [(date: Date, tokens: Int)]
     @Binding var selectedDate: Date?
     @State private var range: HeatmapRange = .default
+    @State private var cachedGridData: [GridCell] = []
+    @State private var cachedCacheKey: GridCacheKey = GridCacheKey(columns: 0, usageCount: 0, totalTokens: 0)
+
+    private struct GridCacheKey: Equatable {
+        let columns: Int
+        let usageCount: Int
+        let totalTokens: Int
+    }
 
     private let rows = 7
     private let cellSize: CGFloat = 18
@@ -62,9 +70,19 @@ struct HeatmapView: View {
 
     private var isYearView: Bool { range == .year }
 
+    private var currentCacheKey: GridCacheKey {
+        GridCacheKey(
+            columns: range.columns,
+            usageCount: dailyUsages.count,
+            totalTokens: dailyUsages.reduce(0) { $0 + $1.tokens }
+        )
+    }
+
     var body: some View {
         let columns = range.columns
-        let gridData = buildGrid(columns: columns)
+        let gridData = cachedGridData.isEmpty || cachedCacheKey != currentCacheKey
+            ? buildGrid(columns: columns)
+            : cachedGridData
 
         VStack(alignment: .leading, spacing: 0) {
             // Range picker
@@ -94,6 +112,17 @@ struct HeatmapView: View {
             } else {
                 fixedGrid(gridData: gridData, columns: columns)
             }
+        }
+        .onAppear { updateGridCache() }
+        .onChange(of: range) { _, _ in updateGridCache() }
+        .onChange(of: currentCacheKey) { _, _ in updateGridCache() }
+    }
+
+    private func updateGridCache() {
+        let key = currentCacheKey
+        if key != cachedCacheKey {
+            cachedGridData = buildGrid(columns: key.columns)
+            cachedCacheKey = key
         }
     }
 

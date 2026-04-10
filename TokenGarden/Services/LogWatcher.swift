@@ -7,10 +7,12 @@ class LogWatcher {
     private var stream: FSEventStreamRef?
     private var fileOffsets: [String: Int] = [:]
     private let offsetsKey = "LogWatcherOffsets"
+    private let debouncedSave: DebouncedPersistence
 
     init(watchPaths: [String], onNewLine: @escaping @MainActor (String) -> Void) {
         self.watchPaths = watchPaths
         self.onNewLine = onNewLine
+        self.debouncedSave = DebouncedPersistence(key: "LogWatcherOffsets", delay: 2.0)
         loadOffsets()
     }
 
@@ -40,7 +42,7 @@ class LogWatcher {
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
         self.stream = nil
-        saveOffsets()
+        debouncedSave.flushNow()
     }
 
     nonisolated private static let eventCallback: FSEventStreamCallback = { _, info, numEvents, eventPaths, _, _ in
@@ -76,7 +78,7 @@ class LogWatcher {
 
         let data = handle.readDataToEndOfFile()
         fileOffsets[path] = Int(handle.offsetInFile)
-        saveOffsets()
+        debouncedSave.schedule(fileOffsets)
 
         guard let content = String(data: data, encoding: .utf8) else { return }
         let lines = content.components(separatedBy: .newlines)
@@ -87,6 +89,9 @@ class LogWatcher {
 
     /// Backfill on background thread. Reads files and parses lines off-main,
     /// then delivers parsed TokenEvents to the callback in batches.
+    ///
+    /// Scans `<watchPath>/projects/` first (Claude Code's actual log location).
+    /// Falls back to full recursive enumeration if that path doesn't exist.
     func backfill(parser: ClaudeCodeLogParser, onEvent: @escaping @MainActor (TokenEvent) -> Void, completion: @escaping @MainActor () -> Void = {}) {
         let currentOffsets = fileOffsets
         let paths = watchPaths
@@ -96,11 +101,15 @@ class LogWatcher {
             var newOffsets: [String: Int] = [:]
 
             for watchPath in paths {
-                guard let enumerator = FileManager.default.enumerator(atPath: watchPath) else { continue }
+                // Prefer targeted projects/ subdirectory
+                let projectsPath = (watchPath as NSString).appendingPathComponent("projects")
+                let rootPath = FileManager.default.fileExists(atPath: projectsPath) ? projectsPath : watchPath
+
+                guard let enumerator = FileManager.default.enumerator(atPath: rootPath) else { continue }
                 while let relativePath = enumerator.nextObject() as? String {
                     guard relativePath.hasSuffix(".jsonl"),
                           !URL(fileURLWithPath: relativePath).lastPathComponent.contains("compact") else { continue }
-                    let fullPath = (watchPath as NSString).appendingPathComponent(relativePath)
+                    let fullPath = (rootPath as NSString).appendingPathComponent(relativePath)
                     guard currentOffsets[fullPath] == nil else { continue }
 
                     guard let handle = FileHandle(forReadingAtPath: fullPath) else { continue }
@@ -124,7 +133,7 @@ class LogWatcher {
                     for (path, offset) in newOffsets {
                         self.fileOffsets[path] = offset
                     }
-                    self.saveOffsets()
+                    self.debouncedSave.schedule(self.fileOffsets)
                     for event in events {
                         onEvent(event)
                     }
@@ -136,9 +145,5 @@ class LogWatcher {
 
     private func loadOffsets() {
         fileOffsets = UserDefaults.standard.dictionary(forKey: offsetsKey) as? [String: Int] ?? [:]
-    }
-
-    private func saveOffsets() {
-        UserDefaults.standard.set(fileOffsets, forKey: offsetsKey)
     }
 }

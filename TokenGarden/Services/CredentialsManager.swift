@@ -25,27 +25,19 @@ struct CredentialsManager {
     @discardableResult
     func writeCredentials(_ data: Data) -> Bool {
         guard let json = String(data: data, encoding: .utf8) else { return false }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["add-generic-password", "-s", Self.keychainService, "-a", Self.keychainAccount, "-w", json, "-U"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
-        return process.terminationStatus == 0
+        let result = ProcessRunner.runSync(
+            executable: "/usr/bin/security",
+            arguments: ["add-generic-password", "-s", Self.keychainService, "-a", Self.keychainAccount, "-w", json, "-U"]
+        )
+        return result.succeeded
     }
 
     private static func currentKeychainData() -> Data? {
-        let pipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["find-generic-password", "-s", keychainService, "-a", keychainAccount, "-w"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
-        let raw = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let str = String(data: raw, encoding: .utf8)?
+        let result = ProcessRunner.runSync(
+            executable: "/usr/bin/security",
+            arguments: ["find-generic-password", "-s", keychainService, "-a", keychainAccount, "-w"]
+        )
+        guard let str = result.outputString?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !str.isEmpty else { return nil }
         return str.data(using: .utf8)
@@ -72,24 +64,16 @@ struct CredentialsManager {
             return fetchAuthStatusFromKeychain()
         }
 
-        let pipe = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: claude)
-        process.arguments = ["auth", "status"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        // Ensure HOME is set for claude to find its config
-        process.environment = ProcessInfo.processInfo.environment
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        let result = ProcessRunner.runSync(
+            executable: claude,
+            arguments: ["auth", "status"],
+            environment: ProcessInfo.processInfo.environment
+        )
+        guard result.succeeded else {
             return fetchAuthStatusFromKeychain()
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = try? JSONSerialization.jsonObject(with: result.output) as? [String: Any],
               let loggedIn = json["loggedIn"] as? Bool, loggedIn,
               let email = json["email"] as? String,
               let subscriptionType = json["subscriptionType"] as? String
@@ -144,7 +128,7 @@ struct CredentialsManager {
 
     /// Fetches real-time rate limit utilization via a minimal API call.
     /// Parses `anthropic-ratelimit-unified-*` response headers.
-    nonisolated static func fetchUsageLimits(oauthToken: String) -> UsageLimits? {
+    nonisolated static func fetchUsageLimits(oauthToken: String) async -> UsageLimits? {
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
 
         var request = URLRequest(url: url, timeoutInterval: 10)
@@ -160,37 +144,30 @@ struct CredentialsManager {
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: UsageLimits?
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else { return nil }
 
-        URLSession.shared.dataTask(with: request) { _, response, _ in
-            defer { semaphore.signal() }
-            guard let http = response as? HTTPURLResponse else { return }
-            let h = http.allHeaderFields as? [String: String] ?? [:]
+        let headers = http.allHeaderFields as? [String: String] ?? [:]
 
-            func doubleHeader(_ key: String) -> Double? {
-                h.first(where: { $0.key.lowercased() == key })
-                    .flatMap { Double($0.value) }
-            }
-            func dateHeader(_ key: String) -> Date? {
-                doubleHeader(key).map { Date(timeIntervalSince1970: $0) }
-            }
+        func doubleHeader(_ key: String) -> Double? {
+            headers.first(where: { $0.key.lowercased() == key })
+                .flatMap { Double($0.value) }
+        }
+        func dateHeader(_ key: String) -> Date? {
+            doubleHeader(key).map { Date(timeIntervalSince1970: $0) }
+        }
 
-            guard let fiveUtil = doubleHeader("anthropic-ratelimit-unified-5h-utilization"),
-                  let fiveReset = dateHeader("anthropic-ratelimit-unified-5h-reset"),
-                  let sevenUtil = doubleHeader("anthropic-ratelimit-unified-7d-utilization"),
-                  let sevenReset = dateHeader("anthropic-ratelimit-unified-7d-reset")
-            else { return }
+        guard let fiveUtil = doubleHeader("anthropic-ratelimit-unified-5h-utilization"),
+              let fiveReset = dateHeader("anthropic-ratelimit-unified-5h-reset"),
+              let sevenUtil = doubleHeader("anthropic-ratelimit-unified-7d-utilization"),
+              let sevenReset = dateHeader("anthropic-ratelimit-unified-7d-reset")
+        else { return nil }
 
-            result = UsageLimits(
-                fiveHourUtilization: fiveUtil,
-                fiveHourResetAt: fiveReset,
-                sevenDayUtilization: sevenUtil,
-                sevenDayResetAt: sevenReset
-            )
-        }.resume()
-
-        semaphore.wait()
-        return result
+        return UsageLimits(
+            fiveHourUtilization: fiveUtil,
+            fiveHourResetAt: fiveReset,
+            sevenDayUtilization: sevenUtil,
+            sevenDayResetAt: sevenReset
+        )
     }
 }

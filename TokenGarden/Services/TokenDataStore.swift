@@ -5,6 +5,7 @@ import SwiftData
 class TokenDataStore: ObservableObject {
     private let modelContainer: ModelContainer
     private let modelContext: ModelContext
+    private let cache = RecordCache()
     private var pendingSaveCount = 0
     var activeProfileName: String?
     private static let saveInterval = 10
@@ -15,19 +16,10 @@ class TokenDataStore: ObservableObject {
     }
 
     func record(_ event: TokenEvent) {
+        cache.invalidateIfNeeded(for: event.timestamp)
+
         let day = Calendar.current.startOfDay(for: event.timestamp)
-
-        let descriptor = FetchDescriptor<DailyUsage>(
-            predicate: #Predicate { $0.date == day }
-        )
-
-        let daily: DailyUsage
-        if let existing = try? modelContext.fetch(descriptor).first {
-            daily = existing
-        } else {
-            daily = DailyUsage(date: day)
-            modelContext.insert(daily)
-        }
+        let daily = cache.getOrCreateDaily(day: day, in: modelContext)
 
         daily.inputTokens += event.inputTokens
         daily.outputTokens += event.outputTokens
@@ -36,16 +28,10 @@ class TokenDataStore: ObservableObject {
 
         // Hourly bucket
         let hour = Calendar.current.component(.hour, from: event.timestamp)
-        let hourlyDescriptor = FetchDescriptor<HourlyUsage>(
-            predicate: #Predicate { $0.date == day && $0.hour == hour }
-        )
-        if let existing = try? modelContext.fetch(hourlyDescriptor).first {
-            existing.tokens += event.totalTokens
-        } else {
-            let hourly = HourlyUsage(date: day, hour: hour, tokens: event.totalTokens)
-            modelContext.insert(hourly)
-        }
+        let hourly = cache.getOrCreateHourly(day: day, hour: hour, in: modelContext)
+        hourly.tokens += event.totalTokens
 
+        // Project breakdown — in-memory traversal of daily.projectBreakdowns (no fetch)
         if let projectName = event.projectName {
             let profile = activeProfileName
             if let existing = daily.projectBreakdowns.first(where: {
@@ -66,35 +52,24 @@ class TokenDataStore: ObservableObject {
 
         // Profile token tracking
         if let profileName = activeProfileName {
-            let profileDescriptor = FetchDescriptor<ProfileTokenUsage>(
-                predicate: #Predicate { $0.profileName == profileName && $0.date == day }
+            let profileUsage = cache.getOrCreateProfileToken(
+                profileName: profileName,
+                day: day,
+                in: modelContext
             )
-            if let existing = try? modelContext.fetch(profileDescriptor).first {
-                existing.tokens += event.totalTokens
-            } else {
-                let usage = ProfileTokenUsage(profileName: profileName, date: day, tokens: event.totalTokens)
-                modelContext.insert(usage)
-            }
+            profileUsage.tokens += event.totalTokens
         }
 
         // Session tracking
         if let sessionId = event.sessionId {
-            let sessionDescriptor = FetchDescriptor<SessionUsage>(
-                predicate: #Predicate { $0.sessionId == sessionId }
+            let session = cache.getOrCreateSession(
+                sessionId: sessionId,
+                projectName: event.projectName ?? "Unknown",
+                timestamp: event.timestamp,
+                in: modelContext
             )
-            if let session = try? modelContext.fetch(sessionDescriptor).first {
-                session.totalTokens += event.totalTokens
-                session.lastTime = event.timestamp
-            } else {
-                let session = SessionUsage(
-                    sessionId: sessionId,
-                    projectName: event.projectName ?? "Unknown",
-                    startTime: event.timestamp
-                )
-                session.totalTokens = event.totalTokens
-                session.lastTime = event.timestamp
-                modelContext.insert(session)
-            }
+            session.totalTokens += event.totalTokens
+            session.lastTime = event.timestamp
         }
 
         pendingSaveCount += 1
@@ -114,20 +89,30 @@ class TokenDataStore: ObservableObject {
     }
 
     /// Apply active status with pre-fetched project names. Must be called on MainActor.
+    ///
+    /// Algorithm: deactivate all currently-active sessions, then for each active project
+    /// fetch only the single most recent session and mark it active. O(activeProjects)
+    /// fetches with `fetchLimit = 1`, replacing the old O(n²) in-memory scan.
     func applyActiveStatus(activeProjects: Set<String>) {
-        let descriptor = FetchDescriptor<SessionUsage>()
-        guard let sessions = try? modelContext.fetch(descriptor) else { return }
+        // Step 1: deactivate all currently-active sessions
+        let activeDescriptor = FetchDescriptor<SessionUsage>(
+            predicate: #Predicate { $0.isActive == true }
+        )
+        if let currentlyActive = try? modelContext.fetch(activeDescriptor) {
+            for session in currentlyActive {
+                session.isActive = false
+            }
+        }
 
-        for session in sessions {
-            session.isActive = false
-
-            if activeProjects.contains(session.projectName) {
-                let projectSessions = sessions
-                    .filter { $0.projectName == session.projectName }
-                    .sorted { $0.lastTime > $1.lastTime }
-                if projectSessions.first?.sessionId == session.sessionId {
-                    session.isActive = true
-                }
+        // Step 2: for each running project, activate its most recent session
+        for projectName in activeProjects {
+            var descriptor = FetchDescriptor<SessionUsage>(
+                predicate: #Predicate { $0.projectName == projectName },
+                sortBy: [SortDescriptor(\.lastTime, order: .reverse)]
+            )
+            descriptor.fetchLimit = 1
+            if let latest = try? modelContext.fetch(descriptor).first {
+                latest.isActive = true
             }
         }
         try? modelContext.save()
@@ -135,19 +120,13 @@ class TokenDataStore: ObservableObject {
 
     /// Returns project names for running claude processes. Safe to call from any thread.
     /// Single lsof call with all PIDs at once to minimize overhead.
-    nonisolated static func getActiveClaudeProjects() -> Set<String> {
+    nonisolated static func getActiveClaudeProjects() async -> Set<String> {
         // Step 1: get PIDs via ps
-        let psPipe = Pipe()
-        let psProc = Process()
-        psProc.executableURL = URL(fileURLWithPath: "/bin/ps")
-        psProc.arguments = ["-eo", "pid,comm"]
-        psProc.standardOutput = psPipe
-        psProc.standardError = FileHandle.nullDevice
-
-        do { try psProc.run() } catch { return [] }
-        let psData = psPipe.fileHandleForReading.readDataToEndOfFile()
-        psProc.waitUntilExit()
-        guard let psOutput = String(data: psData, encoding: .utf8) else { return [] }
+        let psResult = await ProcessRunner.run(
+            executable: "/bin/ps",
+            arguments: ["-eo", "pid,comm"]
+        )
+        guard let psOutput = psResult.outputString else { return [] }
 
         var pids: [String] = []
         for line in psOutput.components(separatedBy: "\n") {
@@ -160,17 +139,11 @@ class TokenDataStore: ObservableObject {
         guard !pids.isEmpty else { return [] }
 
         // Step 2: single lsof call with all PIDs
-        let pipe = Pipe()
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        proc.arguments = ["-a", "-d", "cwd", "-p", pids.joined(separator: ",")]
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-
-        do { try proc.run() } catch { return [] }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        let lsofResult = await ProcessRunner.run(
+            executable: "/usr/sbin/lsof",
+            arguments: ["-a", "-d", "cwd", "-p", pids.joined(separator: ",")]
+        )
+        guard let output = lsofResult.outputString else { return [] }
 
         var projects = Set<String>()
         for line in output.components(separatedBy: "\n") {
@@ -200,6 +173,23 @@ class TokenDataStore: ObservableObject {
             sortBy: [SortDescriptor(\.date)]
         )
         return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    /// Returns 24 hourly token totals for a given day, read from HourlyUsage rows.
+    /// Replaces the view's `@Query var allHourlyUsages` which loaded the entire table.
+    func fetchHourlyUsageBuckets(for date: Date) -> [Int] {
+        let day = Calendar.current.startOfDay(for: date)
+        let descriptor = FetchDescriptor<HourlyUsage>(
+            predicate: #Predicate { $0.date == day }
+        )
+        guard let entries = try? modelContext.fetch(descriptor) else {
+            return Array(repeating: 0, count: 24)
+        }
+        var buckets = Array(repeating: 0, count: 24)
+        for entry in entries where entry.hour >= 0 && entry.hour < 24 {
+            buckets[entry.hour] += entry.tokens
+        }
+        return buckets
     }
 
     /// Returns 24 hourly token totals for a given day, computed from SessionUsage timestamps

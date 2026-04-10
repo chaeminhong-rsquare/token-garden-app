@@ -14,6 +14,11 @@ class MenuBarController: ObservableObject {
     private var bucketHours: [Int] = [-1, -1, -1]
     private var lastKnownDay: Date = .distantPast
 
+    // Dirty tracking — skip NSImage rendering when nothing visible has changed
+    private var needsDisplayUpdate = true
+    private var lastActivityTime: Date = .distantPast
+    private let idleTimeout: TimeInterval = 60  // stop animation after 60s of no events
+
     init(
         statusItem: NSStatusItem,
         initialTodayTokens: Int = 0,
@@ -30,6 +35,7 @@ class MenuBarController: ObservableObject {
             self.hourlyBuckets = initialHourlyBuckets
         }
         updateDisplay()
+        needsDisplayUpdate = false
     }
 
     func onTokenEvent(_ event: TokenEvent) {
@@ -41,7 +47,10 @@ class MenuBarController: ObservableObject {
         if let idx = bucketHours.firstIndex(of: hour) {
             hourlyBuckets[idx] += event.totalTokens
         }
+        lastActivityTime = Date()
+        needsDisplayUpdate = true
         updateDisplay()
+        needsDisplayUpdate = false
     }
 
     /// Reload data after async backfill completes
@@ -50,21 +59,41 @@ class MenuBarController: ObservableObject {
         if hourlyBuckets.count == 3 {
             self.hourlyBuckets = hourlyBuckets
         }
+        needsDisplayUpdate = true
         updateDisplay()
+        needsDisplayUpdate = false
     }
 
-    /// Called by AppDelegate's timer on every tick
+    /// Called by AppDelegate's timer on every tick.
+    /// Skips frame advance and rendering when idle (no token events in last 60s).
     func tick() {
-        currentFrame = (currentFrame + 1) % AnimationFrames.frameCount
-        refreshBucketHours()
-        updateDisplay()
+        let isActive = Date().timeIntervalSince(lastActivityTime) < idleTimeout
+
+        if isActive {
+            // Animation only runs while recent activity — advances frame and redraws
+            currentFrame = (currentFrame + 1) % AnimationFrames.frameCount
+            needsDisplayUpdate = true
+        }
+
+        let hourChanged = refreshBucketHours()
+        if hourChanged {
+            needsDisplayUpdate = true
+        }
+
+        if needsDisplayUpdate {
+            updateDisplay()
+            needsDisplayUpdate = false
+        }
     }
 
     // MARK: - Private
 
-    private func refreshBucketHours() {
+    /// Refreshes day/hour state. Returns true if anything observable changed (day rollover or hour shift).
+    @discardableResult
+    private func refreshBucketHours() -> Bool {
         let cal = Calendar.current
         let now = Date()
+        var changed = false
 
         // Reset all state when the day changes
         let today = cal.startOfDay(for: now)
@@ -73,6 +102,7 @@ class MenuBarController: ObservableObject {
             todayTokens = 0
             hourlyBuckets = [0, 0, 0]
             bucketHours = [-1, -1, -1]
+            changed = true
         }
 
         let currentHour = cal.component(.hour, from: now)
@@ -87,7 +117,9 @@ class MenuBarController: ObservableObject {
             }
             hourlyBuckets = newBuckets
             bucketHours = expected
+            changed = true
         }
+        return changed
     }
 
     private func updateDisplay() {

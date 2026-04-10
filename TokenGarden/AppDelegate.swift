@@ -15,9 +15,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var updateChecker: UpdateChecker!
     private var profileManager: ProfileManager!
 
-    // Session refresh: background thread writes, main thread reads
-    private nonisolated(unsafe) let refreshLock = NSLock()
-    private nonisolated(unsafe) var pendingActiveProjects: Set<String>?
+    // Session refresh via structured concurrency
+    private var sessionRefreshTask: Task<Void, Never>?
     private var lastBalancedSessionId: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -75,11 +74,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // MenuBar Controller
         menuBarController = MenuBarController(statusItem: statusItem, initialTodayTokens: 0, initialHourlyBuckets: [0, 0, 0])
 
-        // Animation timer — also checks for pending session refresh
+        // Animation timer — tick() itself handles dirty tracking to skip redundant renders
         animationTimer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.menuBarController.tick()
-                self?.applyPendingRefreshIfNeeded()
             }
         }
         RunLoop.main.add(animationTimer, forMode: .common)
@@ -96,6 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(menuBarController)
             .environmentObject(updateChecker)
             .environmentObject(profileManager)
+            .environmentObject(dataStore)
             .modelContainer(modelContainer)
         let hostingController = NSHostingController(rootView: popoverView)
         hostingController.sizingOptions = .preferredContentSize
@@ -145,42 +144,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         profileManager.startTokenKeeper()
     }
 
-    /// Run refresh immediately on background, result applied on next timer tick
+    /// Run refresh once on background, apply result on main actor.
     private func triggerRefresh() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let projects = TokenDataStore.getActiveClaudeProjects()
-            self?.refreshLock.lock()
-            self?.pendingActiveProjects = projects
-            self?.refreshLock.unlock()
-        }
-    }
-
-    // MARK: - Session Refresh (background → main via polling)
-
-    private func startSessionRefreshLoop() {
-        Thread.detachNewThread { [weak self] in
-
-            while true {
-                let projects = TokenDataStore.getActiveClaudeProjects()
-
-                self?.refreshLock.lock()
-                self?.pendingActiveProjects = projects
-                self?.refreshLock.unlock()
-                Thread.sleep(forTimeInterval: 30)
+        Task.detached(priority: .utility) { [weak self] in
+            let projects = await TokenDataStore.getActiveClaudeProjects()
+            await MainActor.run {
+                self?.dataStore.applyActiveStatus(activeProjects: projects)
             }
         }
     }
 
-    private func applyPendingRefreshIfNeeded() {
-        refreshLock.lock()
-        let projects = pendingActiveProjects
-        pendingActiveProjects = nil
-        refreshLock.unlock()
+    // MARK: - Session Refresh (structured concurrency)
 
-        if let projects {
-
-            dataStore.applyActiveStatus(activeProjects: projects)
+    private func startSessionRefreshLoop() {
+        sessionRefreshTask = Task.detached(priority: .utility) { [weak self] in
+            while !Task.isCancelled {
+                let projects = await TokenDataStore.getActiveClaudeProjects()
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self?.dataStore.applyActiveStatus(activeProjects: projects)
+                }
+                try? await Task.sleep(for: .seconds(30))
+            }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        sessionRefreshTask?.cancel()
+        sessionRefreshTask = nil
+        logWatcher?.stop()
     }
 
     // MARK: - Popover
