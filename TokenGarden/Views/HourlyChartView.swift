@@ -4,6 +4,7 @@ struct HourlyChartView: View {
     let hourlyTokens: [Int]
     var isToday: Bool = true
     @State private var isExpanded = false
+    @State private var showContent = false
     @State private var hoveredHour: Int?
 
     @AppStorage("heatmapTheme") private var themeName = HeatmapTheme.green.rawValue
@@ -35,9 +36,15 @@ struct HourlyChartView: View {
                     .font(.system(size: 8))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(ExpandAnimation.chevron, value: isExpanded)
             }
             .contentShape(Rectangle())
-            .onTapGesture { isExpanded.toggle() }
+            .onTapGesture {
+                ExpandAnimation.toggle(
+                    isExpanded: $isExpanded,
+                    showContent: $showContent
+                )
+            }
 
             if isExpanded {
                 VStack(spacing: 4) {
@@ -58,6 +65,7 @@ struct HourlyChartView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                 }
+                .opacity(showContent ? 1 : 0)
             }
         }
         .padding(8)

@@ -4,92 +4,12 @@ import SwiftData
 struct PopoverView: View {
     @EnvironmentObject var menuBarController: MenuBarController
     @EnvironmentObject var dataStore: TokenDataStore
-    @Query(sort: \DailyUsage.date) private var allUsages: [DailyUsage]
+    @Environment(OverviewViewModel.self) private var vm
+
     enum Tab { case overview, accounts }
     @State private var activeTab: Tab = .overview
     @State private var showSettings = false
     @State private var showProfiles = false
-    @State private var selectedDate: Date?
-    @State private var activeHourlyTokens: [Int] = Array(repeating: 0, count: 24)
-
-    private var todayUsage: DailyUsage? {
-        let today = Calendar.current.startOfDay(for: Date())
-        return allUsages.first { $0.date == today }
-    }
-
-    private var weekTokens: Int {
-        var calendar = Calendar.current
-        calendar.firstWeekday = 2 // Monday
-        let weekStart = calendar.dateComponents([.calendar, .yearForWeekOfYear, .weekOfYear], from: Date()).date!
-        return allUsages
-            .filter { $0.date >= weekStart }
-            .reduce(0) { $0 + $1.totalTokens }
-    }
-
-    private var monthTokens: Int {
-        let calendar = Calendar.current
-        let comps = calendar.dateComponents([.year, .month], from: Date())
-        let monthStart = calendar.date(from: comps)!
-        return allUsages
-            .filter { $0.date >= monthStart }
-            .reduce(0) { $0 + $1.totalTokens }
-    }
-
-    private var heatmapData: [(date: Date, tokens: Int)] {
-        allUsages.map { (date: $0.date, tokens: $0.totalTokens) }
-    }
-
-    private func reloadHourlyTokens() {
-        let target = selectedDate ?? Date()
-        activeHourlyTokens = dataStore.fetchHourlyUsageBuckets(for: target)
-    }
-
-    // MARK: - Project data by time range
-
-    private func projectsForUsages(_ usages: [DailyUsage]) -> [(name: String, tokens: Int)] {
-        var totals: [String: Int] = [:]
-        for usage in usages {
-            for project in usage.projectBreakdowns {
-                totals[project.projectName, default: 0] += project.tokens
-            }
-        }
-        return totals.map { (name: $0.key, tokens: $0.value) }
-    }
-
-    private var todayProjects: [(name: String, tokens: Int)] {
-        let today = Calendar.current.startOfDay(for: Date())
-        return projectsForUsages(allUsages.filter { $0.date == today })
-    }
-
-    private var weekProjects: [(name: String, tokens: Int)] {
-        var calendar = Calendar.current
-        calendar.firstWeekday = 2
-        let weekStart = calendar.dateComponents([.calendar, .yearForWeekOfYear, .weekOfYear], from: Date()).date!
-        return projectsForUsages(allUsages.filter { $0.date >= weekStart })
-    }
-
-    private var monthProjects: [(name: String, tokens: Int)] {
-        let calendar = Calendar.current
-        let comps = calendar.dateComponents([.year, .month], from: Date())
-        let monthStart = calendar.date(from: comps)!
-        return projectsForUsages(allUsages.filter { $0.date >= monthStart })
-    }
-
-    private var selectedDayProjects: [(name: String, tokens: Int)]? {
-        guard let date = selectedDate else { return nil }
-        let day = Calendar.current.startOfDay(for: date)
-        let usages = allUsages.filter { $0.date == day }
-        guard !usages.isEmpty else { return [] }
-        return projectsForUsages(usages)
-    }
-
-    private var selectedDayLabel: String? {
-        guard let date = selectedDate else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.dateFormat = "M/d (E)"
-        return formatter.string(from: date)
-    }
 
     @State private var cachedPathState: PathState = .unknown
 
@@ -105,7 +25,10 @@ struct PopoverView: View {
         case .missing: return .noClaudeCode
         case .unreadable: return .noPermission
         case .ok, .unknown:
-            return allUsages.isEmpty ? .noData : nil
+            // While the initial load is in flight we show a skeleton instead
+            // of an "empty" message.
+            if vm.isInitialLoading { return nil }
+            return vm.snapshot.hasAnyData ? nil : .noData
         }
     }
 
@@ -121,7 +44,17 @@ struct PopoverView: View {
         }
     }
 
+    private var selectedDayLabel: String? {
+        guard let date = vm.selectedDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateFormat = "M/d (E)"
+        return formatter.string(from: date)
+    }
+
     var body: some View {
+        @Bindable var vm = vm
+
         VStack(spacing: 0) {
             HStack {
                 if showSettings || showProfiles {
@@ -181,58 +114,14 @@ struct PopoverView: View {
             } else if showProfiles {
                 ProfileListView()
             } else if activeTab == .accounts {
-                AccountsTabView()
-                    .transition(.identity)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    HeatmapView(dailyUsages: heatmapData, selectedDate: $selectedDate)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-
-                    if let date = selectedDate,
-                       let usage = allUsages.first(where: {
-                           Calendar.current.isDate($0.date, inSameDayAs: date)
-                       }) {
-                        HStack {
-                            Text(selectedDayLabel ?? "")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text(TokenFormatter.format(usage.totalTokens))
-                                .font(.caption.monospacedDigit())
-                                .fontWeight(.medium)
-                        }
-                        .padding(8)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .padding(.horizontal, 12)
-                    } else {
-                        StatsView(
-                            todayTokens: todayUsage?.totalTokens ?? 0,
-                            weekTokens: weekTokens,
-                            monthTokens: monthTokens
-                        )
-                        .padding(.horizontal, 12)
-                    }
-
-                    HourlyChartView(
-                        hourlyTokens: activeHourlyTokens,
-                        isToday: selectedDate == nil || Calendar.current.isDateInToday(selectedDate!)
-                    )
-                        .padding(.horizontal, 12)
-
-                    ProjectListView(
-                        todayProjects: todayProjects,
-                        weekProjects: weekProjects,
-                        monthProjects: monthProjects,
-                        selectedDayProjects: selectedDayProjects,
-                        selectedDayLabel: selectedDayLabel
-                    )
-                    .padding(.horizontal, 12)
-
-                    SessionListView()
-                        .padding(.horizontal, 12)
+                ScrollView {
+                    AccountsTabView()
                 }
-                .padding(.bottom, 12)
+                .scrollIndicators(.never)
+                .frame(height: tabContentHeight)
+                .transition(.identity)
+            } else {
+                overviewContent(vm: $vm)
             }
         }
         .frame(width: 320)
@@ -241,13 +130,84 @@ struct PopoverView: View {
         .animation(nil, value: activeTab)
         .onAppear {
             refreshPathState()
-            reloadHourlyTokens()
         }
-        .onChange(of: selectedDate) { _, _ in
-            reloadHourlyTokens()
+    }
+
+    /// Fixed inner height for the Overview tab. The popover itself stays
+    /// this size regardless of expanded/collapsed section state; overflow
+    /// scrolls inside the ScrollView.
+    private let tabContentHeight: CGFloat = 520
+
+    @ViewBuilder
+    private func overviewContent(vm: Bindable<OverviewViewModel>) -> some View {
+        Group {
+            if vm.wrappedValue.isInitialLoading {
+                OverviewSkeleton()
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .transition(.opacity)
+            } else {
+                let snapshot = vm.wrappedValue.snapshot
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HeatmapView(
+                            dailyUsages: snapshot.heatmapData.map { (date: $0.date, tokens: $0.tokens) },
+                            selectedDate: vm.selectedDate
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+
+                        if let date = vm.wrappedValue.selectedDate,
+                           let cell = snapshot.heatmapData.first(where: {
+                               Calendar.current.isDate($0.date, inSameDayAs: date)
+                           }) {
+                            HStack {
+                                Text(selectedDayLabel ?? "")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(TokenFormatter.format(cell.tokens))
+                                    .font(.caption.monospacedDigit())
+                                    .fontWeight(.medium)
+                            }
+                            .padding(8)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 12)
+                        } else {
+                            StatsView(
+                                todayTokens: snapshot.todayTokens,
+                                weekTokens: snapshot.weekTokens,
+                                monthTokens: snapshot.monthTokens
+                            )
+                            .padding(.horizontal, 12)
+                        }
+
+                        HourlyChartView(
+                            hourlyTokens: vm.wrappedValue.activeHourlyTokens,
+                            isToday: vm.wrappedValue.selectedDate == nil
+                                || Calendar.current.isDateInToday(vm.wrappedValue.selectedDate!)
+                        )
+                        .padding(.horizontal, 12)
+
+                        ProjectListView(
+                            todayProjects: snapshot.todayProjects.map { (name: $0.name, tokens: $0.tokens) },
+                            weekProjects: snapshot.weekProjects.map { (name: $0.name, tokens: $0.tokens) },
+                            monthProjects: snapshot.monthProjects.map { (name: $0.name, tokens: $0.tokens) },
+                            selectedDayProjects: vm.wrappedValue.selectedDayProjects?.map {
+                                (name: $0.name, tokens: $0.tokens)
+                            },
+                            selectedDayLabel: selectedDayLabel
+                        )
+                        .padding(.horizontal, 12)
+
+                        SessionListView(sessions: snapshot.activeSessions)
+                            .padding(.horizontal, 12)
+                    }
+                    .padding(.bottom, 12)
+                }
+                .scrollIndicators(.never)
+                .transition(.opacity)
+            }
         }
-        .onChange(of: allUsages.count) { _, _ in
-            reloadHourlyTokens()
-        }
+        .frame(height: tabContentHeight)
     }
 }

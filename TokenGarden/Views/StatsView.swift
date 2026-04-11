@@ -5,6 +5,7 @@ struct StatsView: View {
     let weekTokens: Int
     let monthTokens: Int
     @State private var isExpanded = false
+    @State private var showContent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -22,9 +23,15 @@ struct StatsView: View {
                     .font(.system(size: 8))
                     .foregroundStyle(.tertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(ExpandAnimation.chevron, value: isExpanded)
             }
             .contentShape(Rectangle())
-            .onTapGesture { isExpanded.toggle() }
+            .onTapGesture {
+                ExpandAnimation.toggle(
+                    isExpanded: $isExpanded,
+                    showContent: $showContent
+                )
+            }
 
             if isExpanded {
                 VStack(spacing: 6) {
@@ -32,6 +39,7 @@ struct StatsView: View {
                     statsRow(label: "This Week", value: weekTokens)
                     statsRow(label: "This Month", value: monthTokens)
                 }
+                .opacity(showContent ? 1 : 0)
             }
         }
         .padding(8)

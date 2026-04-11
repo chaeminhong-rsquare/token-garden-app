@@ -1,23 +1,24 @@
 import SwiftUI
-import SwiftData
 
 struct SessionListView: View {
-    @Query(
-        filter: #Predicate<SessionUsage> { $0.isActive == true },
-        sort: \SessionUsage.lastTime,
-        order: .reverse
-    ) private var activeSessions: [SessionUsage]
+    let sessions: [SessionSummary]
 
     @State private var isExpanded = false
+    @State private var showContent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button(action: { isExpanded.toggle() }) {
+            Button(action: {
+                ExpandAnimation.toggle(
+                    isExpanded: $isExpanded,
+                    showContent: $showContent
+                )
+            }) {
                 HStack {
                     Label("Active Sessions", systemImage: "bolt.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("\(activeSessions.count)")
+                    Text("\(sessions.count)")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -25,31 +26,35 @@ struct SessionListView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(ExpandAnimation.chevron, value: isExpanded)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                if activeSessions.isEmpty {
-                    Text("No active sessions")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.vertical, 4)
-                } else {
-                    let content = VStack(spacing: 4) {
-                        ForEach(activeSessions, id: \.sessionId) { session in
-                            SessionRow(session: session)
+                Group {
+                    if sessions.isEmpty {
+                        Text("No active sessions")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 4)
+                    } else {
+                        let content = VStack(spacing: 4) {
+                            ForEach(sessions) { session in
+                                SessionRow(session: session)
+                            }
+                        }
+                        if sessions.count > 10 {
+                            ScrollView { content }
+                                .scrollIndicators(.never)
+                                .frame(maxHeight: 250)
+                        } else {
+                            content
                         }
                     }
-                    if activeSessions.count > 10 {
-                        ScrollView { content }
-                            .scrollIndicators(.never)
-                            .frame(maxHeight: 250)
-                    } else {
-                        content
-                    }
                 }
+                .opacity(showContent ? 1 : 0)
             }
         }
         .padding(8)
@@ -58,7 +63,7 @@ struct SessionListView: View {
 }
 
 private struct SessionRow: View {
-    let session: SessionUsage
+    let session: SessionSummary
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()

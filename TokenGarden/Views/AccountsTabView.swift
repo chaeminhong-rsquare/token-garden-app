@@ -101,6 +101,7 @@ private struct AccountStatsView: View {
     @Query private var allProfileUsages: [ProfileTokenUsage]
     @Query private var allProjectUsages: [ProjectUsage]
     @State private var isExpanded = false
+    @State private var showContent = false
 
     private var calendar: Calendar { Calendar.current }
 
@@ -156,14 +157,23 @@ private struct AccountStatsView: View {
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(ExpandAnimation.chevron, value: isExpanded)
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { isExpanded.toggle() }
+                .onTapGesture {
+                    ExpandAnimation.toggle(
+                        isExpanded: $isExpanded,
+                        showContent: $showContent
+                    )
+                }
 
                 if isExpanded {
-                    ForEach(profileNames, id: \.self) { profile in
-                        accountCard(profile)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(profileNames, id: \.self) { profile in
+                            accountCard(profile)
+                        }
                     }
+                    .opacity(showContent ? 1 : 0)
                 }
             }
             .padding(8)
@@ -241,6 +251,7 @@ private struct AccountDailyChartView: View {
     @Query private var allProfileUsages: [ProfileTokenUsage]
     @Query private var allProfiles: [Profile]
     @State private var isExpanded = false
+    @State private var showContent = false
     @State private var hoveredDay: Int?
 
     private let dayCount = 28
@@ -309,14 +320,23 @@ private struct AccountDailyChartView: View {
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(ExpandAnimation.chevron, value: isExpanded)
                 }
                 .contentShape(Rectangle())
-                .onTapGesture { isExpanded.toggle() }
+                .onTapGesture {
+                    ExpandAnimation.toggle(
+                        isExpanded: $isExpanded,
+                        showContent: $showContent
+                    )
+                }
 
                 if isExpanded {
-                    ForEach(profileNames, id: \.self) { profile in
-                        profileChart(profile, color: colorForProfile(profile))
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(profileNames, id: \.self) { profile in
+                            profileChart(profile, color: colorForProfile(profile))
+                        }
                     }
+                    .opacity(showContent ? 1 : 0)
                 }
             }
             .padding(8)

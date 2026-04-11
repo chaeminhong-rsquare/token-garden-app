@@ -14,6 +14,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTimer: Timer!
     private var updateChecker: UpdateChecker!
     private var profileManager: ProfileManager!
+    private var overviewViewModel: OverviewViewModel!
 
     // Session refresh via structured concurrency
     private var sessionRefreshTask: Task<Void, Never>?
@@ -86,6 +87,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateChecker = UpdateChecker()
         updateChecker.check()
 
+        // Overview View Model — starts loading data immediately so it's
+        // already in memory by the time the user clicks the menu bar.
+        overviewViewModel = OverviewViewModel(modelContainer: modelContainer)
+        overviewViewModel.start()
+
         // Popover
         popover = NSPopover()
         popover.behavior = .transient
@@ -95,6 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(updateChecker)
             .environmentObject(profileManager)
             .environmentObject(dataStore)
+            .environment(overviewViewModel)
             .modelContainer(modelContainer)
         let hostingController = NSHostingController(rootView: popoverView)
         hostingController.sizingOptions = .preferredContentSize
@@ -106,6 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let event = parser.parse(logLine: line) else { return }
             self?.dataStore.record(event)
             self?.menuBarController.onTokenEvent(event)
+            self?.overviewViewModel.onTokenEvent()
 
             // Auto-balance only when session changes
             if let sessionId = event.sessionId,
@@ -133,6 +141,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ).first?.totalTokens ?? 0
             let hourlyBuckets = self?.dataStore.fetchHourlyBuckets() ?? [0, 0, 0]
             self?.menuBarController.reloadData(todayTokens: todayTokens, hourlyBuckets: hourlyBuckets)
+            // Backfill finished — kick a fresh snapshot so the VM sees the
+            // newly persisted data.
+            self?.overviewViewModel.refresh()
         }
 
 

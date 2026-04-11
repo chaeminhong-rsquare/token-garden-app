@@ -14,6 +14,7 @@ struct ProjectListView: View {
     var selectedDayLabel: String?
     @State private var selectedRange: ProjectTimeRange = .week
     @State private var isExpanded = false
+    @State private var showContent = false
 
     private var activeProjects: [(name: String, tokens: Int)] {
         if let selected = selectedDayProjects {
@@ -33,7 +34,12 @@ struct ProjectListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // Header
-            Button(action: { isExpanded.toggle() }) {
+            Button(action: {
+                ExpandAnimation.toggle(
+                    isExpanded: $isExpanded,
+                    showContent: $showContent
+                )
+            }) {
                 HStack {
                     Label(selectedDayLabel ?? "Projects", systemImage: "folder.fill")
                         .font(.caption)
@@ -44,7 +50,7 @@ struct ProjectListView: View {
                     Spacer()
 
                     if selectedDayProjects == nil && isExpanded {
-                        // Time range picker
+                        // Time range picker — fade in with content
                         HStack(spacing: 2) {
                             ForEach(ProjectTimeRange.allCases, id: \.self) { range in
                                 Text(range.rawValue)
@@ -63,52 +69,57 @@ struct ProjectListView: View {
                                     }
                             }
                         }
+                        .opacity(showContent ? 1 : 0)
                     }
 
                     Image(systemName: "chevron.right")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(ExpandAnimation.chevron, value: isExpanded)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                if activeProjects.isEmpty {
-                    Text("No projects")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.vertical, 4)
-                } else {
-                    let items = activeProjects.sorted(by: { $0.tokens > $1.tokens })
-                    let content = VStack(spacing: 0) {
-                        ForEach(items, id: \.name) { project in
-                            HStack {
-                                Text(project.name)
-                                    .font(.caption)
-                                    .lineLimit(1)
-                                Spacer()
-                                Text(TokenFormatter.format(project.tokens))
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                let pct = totalTokens > 0 ? Int(Double(project.tokens) / Double(totalTokens) * 100) : 0
-                                Text("\(pct)%")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 30, alignment: .trailing)
+                Group {
+                    if activeProjects.isEmpty {
+                        Text("No projects")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 4)
+                    } else {
+                        let items = activeProjects.sorted(by: { $0.tokens > $1.tokens })
+                        let content = VStack(spacing: 0) {
+                            ForEach(items, id: \.name) { project in
+                                HStack {
+                                    Text(project.name)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(TokenFormatter.format(project.tokens))
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    let pct = totalTokens > 0 ? Int(Double(project.tokens) / Double(totalTokens) * 100) : 0
+                                    Text("\(pct)%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 30, alignment: .trailing)
+                                }
+                                .padding(.vertical, 2)
                             }
-                            .padding(.vertical, 2)
+                        }
+                        if items.count > 10 {
+                            ScrollView { content }
+                                .scrollIndicators(.never)
+                                .frame(maxHeight: 250)
+                        } else {
+                            content
                         }
                     }
-                    if items.count > 10 {
-                        ScrollView { content }
-                            .scrollIndicators(.never)
-                            .frame(maxHeight: 250)
-                    } else {
-                        content
-                    }
                 }
+                .opacity(showContent ? 1 : 0)
             }
         }
         .padding(8)
