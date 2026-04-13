@@ -41,18 +41,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             modelContainer = try ModelContainer(for: schema, configurations: [config])
         } catch {
-            // Backup profiles before reset
-            let backupProfiles = Self.backupProfiles(from: storeURL)
+            // Backup profiles before reset — checkpoints WAL so recently-saved
+            // rows that only exist in the write-ahead log are visible.
+            let backup = Self.backupProfiles(from: storeURL)
 
-            // New model added — reset store and backfill offsets to rebuild from logs
+            // Preserve the old store instead of deleting it. A failed backup
+            // (couldn't open DB, prepare failed, etc.) must not lead to silent
+            // data loss — the previous store is renamed to a timestamped
+            // sibling so users can recover manually.
             let storeDir = storeURL.deletingLastPathComponent()
-            try? FileManager.default.removeItem(at: storeDir)
+            Self.archiveStoreFiles(in: storeDir, storeName: storeURL.lastPathComponent)
             try? FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
             UserDefaults.standard.removeObject(forKey: "LogWatcherOffsets")
             modelContainer = try! ModelContainer(for: schema, configurations: [config])
 
             // Restore profiles after reset
-            Self.restoreProfiles(backupProfiles, into: modelContainer.mainContext)
+            Self.restoreProfiles(backup.profiles, into: modelContainer.mainContext)
         }
         dataStore = TokenDataStore(modelContainer: modelContainer)
 
@@ -190,7 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Profile Backup/Restore (survives DB reset)
 
-    private struct ProfileBackup: Codable {
+    struct ProfileBackup: Codable {
         let name: String
         let email: String
         let plan: String
@@ -200,15 +204,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let colorName: String
     }
 
-    private static func backupProfiles(from storeURL: URL) -> [ProfileBackup] {
-        // Read profiles directly via SQLite before DB is destroyed
+    /// Result of a profile backup attempt.
+    /// `didReadDatabase` distinguishes "DB opened and table read successfully"
+    /// (empty result means no profiles) from "could not read at all" (schema
+    /// mismatch, locked DB, missing file — empty result is not authoritative).
+    struct ProfileBackupResult {
+        let profiles: [ProfileBackup]
+        let didReadDatabase: Bool
+    }
+
+    static func backupProfiles(from storeURL: URL) -> ProfileBackupResult {
+        // Read profiles directly via SQLite before DB is destroyed.
+        guard FileManager.default.fileExists(atPath: storeURL.path) else {
+            return ProfileBackupResult(profiles: [], didReadDatabase: false)
+        }
+
         var db: OpaquePointer?
-        guard sqlite3_open(storeURL.path, &db) == SQLITE_OK else { return [] }
+        guard sqlite3_open(storeURL.path, &db) == SQLITE_OK else {
+            return ProfileBackupResult(profiles: [], didReadDatabase: false)
+        }
         defer { sqlite3_close(db) }
+
+        // Fold any WAL rows into the main DB before reading. If the previous
+        // app instance crashed before a checkpoint (e.g., right after saving
+        // a profile), those rows only exist in the WAL and a naive
+        // `sqlite3_open` + SELECT would miss them, causing the subsequent
+        // reset path to silently destroy unbacked-up profiles.
+        sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nil, nil, nil)
 
         var stmt: OpaquePointer?
         let sql = "SELECT ZNAME, ZEMAIL, ZPLAN, ZCREDENTIALSJSON, ZISACTIVE, ZMONTHLYLIMIT, ZCOLORNAME FROM ZPROFILE"
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            return ProfileBackupResult(profiles: [], didReadDatabase: false)
+        }
         defer { sqlite3_finalize(stmt) }
 
         var backups: [ProfileBackup] = []
@@ -234,7 +262,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 monthlyLimit: monthlyLimit, colorName: colorName
             ))
         }
-        return backups
+        return ProfileBackupResult(profiles: backups, didReadDatabase: true)
+    }
+
+    /// Renames the existing store files to a timestamped archive next to the
+    /// store directory. This preserves data on schema-migration failures so a
+    /// user or developer can recover manually, instead of silently deleting it.
+    static func archiveStoreFiles(in storeDir: URL, storeName: String) {
+        let fm = FileManager.default
+        let suffixes = ["", "-shm", "-wal"]
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        for suffix in suffixes {
+            let src = storeDir.appendingPathComponent(storeName + suffix)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            let dst = storeDir.appendingPathComponent("\(storeName).corrupted-\(timestamp)\(suffix)")
+            try? fm.moveItem(at: src, to: dst)
+        }
     }
 
     private static func restoreProfiles(_ backups: [ProfileBackup], into context: ModelContext) {
